@@ -4,13 +4,13 @@
 <script>
 // SW KILL SWITCH — runs before anything else, nukes stale service workers
 (async () => {
-  const CURRENT_CACHE = 'cos-static-v10';
+  const CURRENT_CACHE = 'cos-static-v11';
   let nuked = false;
   if ('serviceWorker' in navigator) {
     const regs = await navigator.serviceWorker.getRegistrations();
     for (const r of regs) {
       const sw = r.active || r.waiting || r.installing;
-      if (sw && !sw.scriptURL.includes('v=10')) {
+      if (sw && !sw.scriptURL.includes('v=11')) {
         try { sw.postMessage({type:'SKIP_WAITING'}); } catch(e){}
         await r.unregister();
         nuked = true;
@@ -4220,6 +4220,15 @@ html,body{height:100%;font-family:"DM Sans",sans-serif;background:var(--bg);colo
     <div style="font-size:11px;color:var(--text3);margin-top:8px;text-align:center">
       ℹ️ Allow notifications when prompted for alarms to work. Alarms work when app is open in browser.
     </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span class="emoji">🎙️</span> Agent Coach</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Voice-guided daily routine (workout · study · hydration) and an AI daily planner, powered by your existing alarm engine.</div>
+    <button class="btn btn-primary btn-sm btn-block" onclick="AgentCoach.installDefaultRoutine()" style="margin-bottom:8px">🎙 Install Voice Routine (5am–8pm)</button>
+    <button class="btn btn-secondary btn-sm btn-block" onclick="runAgentDailyPlan()" style="margin-bottom:8px">🧠 Generate Today's Plan</button>
+    <button class="btn btn-secondary btn-sm btn-block" onclick="AgentCoach.speak('This is a test of your coach voice.')" style="margin-bottom:8px">🔊 Test Voice</button>
+    <div id="agentPlanOutput" style="font-size:12px;color:var(--text);white-space:pre-wrap;line-height:1.5;margin-top:6px"></div>
   </div>
 
   <div class="card">
@@ -16428,7 +16437,7 @@ document.addEventListener('DOMContentLoaded',()=>{setTimeout(()=>{if(document.ge
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         // v10 forces re-install of SW, clearing broken modefault.js precache
-        navigator.serviceWorker.register('./service-worker.js?v=9')
+        navigator.serviceWorker.register('./service-worker.js?v=10')
           .then(reg => {
             console.log('✅ SW registered:', reg.scope);
             reg.update();
@@ -19965,6 +19974,198 @@ ${passiveCtx}
 // Expose for use in other parts of the app
 window.buildCOSMasterPrompt = buildCOSMasterPrompt;
 window.PassiveMind = PassiveMind;
+
+// ═══════════════════════════════════════════════════════
+// COS AGENT COACH MODULE — v1.0
+// Paste this block anywhere before the closing </script> tag
+// in index.html. Depends on existing: callGroqFast, showToast,
+// _WORKER_URL, cos_alarms localStorage key. No other files touched.
+// ═══════════════════════════════════════════════════════
+
+const AgentCoach = (() => {
+
+  // ── 1. Soft 3s tone (Web Audio, independent of playAlarmSound) ──
+  function gentleTone() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(528, ctx.currentTime); // calm tone
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.4);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 3);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 3);
+      osc.onended = () => ctx.close();
+    } catch (e) { console.warn('AgentCoach tone failed', e); }
+  }
+
+  // ── 2. Female voice TTS ──
+  let _femaleVoice = null;
+  function pickFemaleVoice() {
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices.length) return null;
+    const preferred = voices.find(v => /female|zira|samantha|google uk english female|google us english/i.test(v.name));
+    return preferred || voices.find(v => v.lang.startsWith('en')) || voices[0];
+  }
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.onvoiceschanged = () => { _femaleVoice = pickFemaleVoice(); };
+    _femaleVoice = pickFemaleVoice();
+  }
+
+  function speak(text) {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.voice = _femaleVoice || pickFemaleVoice();
+    utter.rate = 0.98;
+    utter.pitch = 1.05;
+    window.speechSynthesis.speak(utter);
+  }
+
+  // ── 3. Fire a reminder: tone → 1s pause → voice ──
+  function remind(label, verbalText) {
+    gentleTone();
+    if (typeof showToast === 'function') showToast('🔔 ' + label, 4000);
+    setTimeout(() => speak(verbalText), 1200);
+    if (Notification.permission === 'granted') {
+      try { new Notification('COS Coach · ' + label, { body: verbalText }); } catch (e) {}
+    }
+  }
+
+  // ── 4. Default routine — 5am wake / 8pm sleep ──
+  // Workout + study + hydration only. No fasting automation — see note.
+  const DEFAULT_ROUTINE = [
+    { time: '05:00', label: 'Wake + Water', voice: 'Good morning. Drink a full glass of water first, then get moving.' },
+    { time: '05:15', label: 'Workout', voice: 'Time for your workout. Warm up first, then start today\'s sets.' },
+    { time: '08:00', label: 'Hydration', voice: 'Quick reminder — drink some water and take a short breather.' },
+    { time: '09:00', label: 'Study Block — Haryana Police Prep', voice: 'Study block starting. Ninety minutes, then a short break.' },
+    { time: '11:00', label: 'Hydration', voice: 'Water break. Stretch for a minute too.' },
+    { time: '13:00', label: 'Midday Reset', voice: 'Lunch and a short walk. Come back sharp for the afternoon session.' },
+    { time: '15:00', label: 'Study Block — Practice Set', voice: 'Afternoon study block. Focus on weak areas today.' },
+    { time: '17:00', label: 'Hydration', voice: 'Evening water reminder. Stay ahead of thirst, not behind it.' },
+    { time: '18:30', label: 'Evening Review', voice: 'Quick review of what you studied today. Ten minutes is enough.' },
+    { time: '20:00', label: 'Wind Down', voice: 'Time to wind down. Screens off soon, tomorrow starts at five.' },
+  ];
+
+  function installDefaultRoutine(overwrite = false) {
+    let alarms = JSON.parse(localStorage.getItem('cos_alarms') || '[]');
+    if (!overwrite && alarms.some(a => a.agentDefault)) {
+      showToast?.('Routine already installed');
+      return;
+    }
+    if (overwrite) alarms = alarms.filter(a => !a.agentDefault);
+    DEFAULT_ROUTINE.forEach(r => {
+      alarms.push({
+        id: Date.now() + Math.random(),
+        label: r.label,
+        time: r.time,
+        sound: 'gentle',
+        repeat: 'daily',
+        active: true,
+        agentDefault: true,
+        voiceText: r.voice
+      });
+    });
+    localStorage.setItem('cos_alarms', JSON.stringify(alarms));
+    if (typeof renderAlarms === 'function') renderAlarms();
+    showToast?.('🎙 Agent routine installed — ' + DEFAULT_ROUTINE.length + ' reminders');
+  }
+
+  // ── 5. Hook into existing checkAlarms() minute-tick ──
+  // Wrap, don't replace — preserves original alarm behavior (visual + sound),
+  // adds voice on top only for alarms carrying voiceText.
+  function patchCheckAlarms() {
+    if (typeof window.checkAlarms !== 'function' || window._agentPatchedCheckAlarms) return;
+    const original = window.checkAlarms;
+    window.checkAlarms = function () {
+      const now = new Date();
+      const ts = now.toTimeString().slice(0, 5);
+      const alarms = JSON.parse(localStorage.getItem('cos_alarms') || '[]');
+      alarms.forEach(a => {
+        if (a.active && a.time === ts && a.voiceText) {
+          remind(a.label, a.voiceText);
+        }
+      });
+      original();
+    };
+    window._agentPatchedCheckAlarms = true;
+  }
+
+  // ── 6. Daily Planner Agent — analyzes goals/tasks, returns structured plan ──
+  async function generateDailyPlan(userContext) {
+    const ctx = Object.assign({
+      wakeTime: '05:00',
+      sleepTime: '20:00',
+      focus: 'Haryana Police exam preparation',
+      commitments: 'COS development, job applications',
+      workoutNote: 'Beginner, 5kg dumbbells + bodyweight, building base strength/stamina',
+    }, userContext || {});
+
+    const systemPrompt = `You are a practical daily productivity coach. Output a realistic, personalized plan.
+User schedule: wakes ${ctx.wakeTime}, sleeps ${ctx.sleepTime}.
+Primary goal: ${ctx.focus}.
+Other commitments: ${ctx.commitments}.
+Workout context: ${ctx.workoutNote}.
+Structure your response with these exact sections:
+1. Today's Priorities (High/Medium/Low)
+2. Time Blocks (realistic, matching wake/sleep window)
+3. Top 3 Most Important Tasks
+4. Delegate/Automate/AI-assist opportunities
+5. Recommended technique (Pomodoro/Deep Work/Time Blocking) and why
+6. Wellness checkpoints (breaks, hydration — no fasting or calorie guidance)
+7. Simple daily schedule table
+8. One short motivational line
+Keep it concise, practical, no fluff.`;
+
+    try {
+      const plan = await callGroqFast('Generate today\'s plan.', systemPrompt, 700);
+      return plan;
+    } catch (e) {
+      console.warn('AgentCoach plan generation failed', e);
+      return 'Could not reach the planning agent — check your connection and try again.';
+    }
+  }
+
+  patchCheckAlarms();
+
+  return { speak, remind, installDefaultRoutine, generateDailyPlan, gentleTone };
+})();
+
+window.AgentCoach = AgentCoach;
+
+// ── UI wrapper for the "Generate Today's Plan" button ──
+async function runAgentDailyPlan() {
+  const out = document.getElementById('agentPlanOutput');
+  if (out) out.textContent = '⏳ Building your plan...';
+  const plan = await AgentCoach.generateDailyPlan();
+  if (out) out.textContent = plan;
+  AgentCoach.speak('Your plan for today is ready. Check the top three priorities and let\'s get moving.');
+}
+window.runAgentDailyPlan = runAgentDailyPlan;
+
+// ── Optional: run once on load to patch alarms even if checkAlarms
+// wasn't defined yet at parse time (covers async init order) ──
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    if (typeof window.checkAlarms === 'function' && !window._agentPatchedCheckAlarms) {
+      const orig = window.checkAlarms;
+      window.checkAlarms = function () {
+        const now = new Date();
+        const ts = now.toTimeString().slice(0, 5);
+        const alarms = JSON.parse(localStorage.getItem('cos_alarms') || '[]');
+        alarms.forEach(a => {
+          if (a.active && a.time === ts && a.voiceText) AgentCoach.remind(a.label, a.voiceText);
+        });
+        orig();
+      };
+      window._agentPatchedCheckAlarms = true;
+    }
+  }, 500);
+});
+
 </script>
 
 </body>
