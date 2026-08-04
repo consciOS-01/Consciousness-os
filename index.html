@@ -16486,7 +16486,7 @@ document.addEventListener('DOMContentLoaded',()=>{setTimeout(()=>{if(document.ge
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         // v10 forces re-install of SW, clearing broken modefault.js precache
-        navigator.serviceWorker.register('./service-worker.js?v=10')
+        navigator.serviceWorker.register('./service-worker.js?v=11')
           .then(reg => {
             console.log('✅ SW registered:', reg.scope);
             reg.update();
@@ -17059,7 +17059,7 @@ function shareWeeklyCard() {
   ctx.font = '500 11px sans-serif';
   ctx.fillStyle = 'rgba(255,255,255,0.3)';
   const dateStr = document.getElementById('wmc-dates')?.textContent || '';
-  ctx.fillText(dateStr + ' · vikramsandhu90341.github.io/Consciousness-os/', 30, 385);
+  ctx.fillText(dateStr + ' · conscios-01.github.io/Consciousness-os/', 30, 385);
 
   // Download
   canvas.toBlob(blob => {
@@ -17664,7 +17664,7 @@ function openReferralModal() {
   modal.style.display = 'flex';
   const user = auth.currentUser;
   const refCode = user ? 'COS_' + user.uid.slice(0,8).toUpperCase() : 'COS_GUEST';
-  const refLink = `https://vikramsandhu90341.github.io/Consciousness-os/?ref=${refCode}`;
+  const refLink = `https://conscios-01.github.io/Consciousness-os/?ref=${refCode}`;
   document.getElementById('referralLinkDisplay').textContent = refLink;
   // Load referral stats
   if (user) {
