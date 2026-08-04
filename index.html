@@ -4227,6 +4227,7 @@ html,body{height:100%;font-family:"DM Sans",sans-serif;background:var(--bg);colo
     <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Voice-guided daily routine (workout · study · hydration) and an AI daily planner, powered by your existing alarm engine.</div>
     <button class="btn btn-primary btn-sm btn-block" onclick="AgentCoach.installDefaultRoutine()" style="margin-bottom:8px">🎙 Install Voice Routine (5am–8pm)</button>
     <button class="btn btn-secondary btn-sm btn-block" onclick="runAgentDailyPlan()" style="margin-bottom:8px">🧠 Generate Today's Plan</button>
+    <button class="btn btn-secondary btn-sm btn-block" onclick="AgentCoach.requestReminderPermission()" style="margin-bottom:8px">🔔 Enable Background Reminders</button>
     <button class="btn btn-secondary btn-sm btn-block" onclick="AgentCoach.speak('This is a test of your coach voice.')" style="margin-bottom:8px">🔊 Test Voice</button>
     <div id="agentPlanOutput" style="font-size:12px;color:var(--text);white-space:pre-wrap;line-height:1.5;margin-top:6px"></div>
   </div>
@@ -4241,6 +4242,32 @@ html,body{height:100%;font-family:"DM Sans",sans-serif;background:var(--bg);colo
     </div>
     <button class="btn btn-secondary btn-sm" onclick="addReminder()">+ Add Reminder</button>
     <div id="remindersList" style="margin-top:10px"></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     TAB — HUNTER SYSTEM
+════════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-hunter">
+  <div class="card">
+    <div class="card-title"><span class="emoji">⚔️</span> Hunter System</div>
+    <div id="hunterRank" style="text-align:center;margin-bottom:6px"></div>
+    <div id="hunterClass" style="text-align:center;font-size:13px;margin-bottom:14px"></div>
+    <div style="display:flex;justify-content:center;gap:8px;margin-bottom:10px">
+      <button class="btn btn-secondary btn-sm" onclick="HunterSystem.setGender('male')">♂ Male</button>
+      <button class="btn btn-secondary btn-sm" onclick="HunterSystem.setGender('female')">♀ Female</button>
+    </div>
+    <div id="hunterAvatar"></div>
+    <div style="font-size:11px;color:var(--text3);text-align:center;margin-top:6px">Original stylized figure — proportions shift with your STR/VIT (muscle) and AGI/PER (lean) stats.</div>
+    <div id="hunterRadar" style="margin-top:10px"></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="emoji">🎯</span> Daily Quests</div>
+    <div id="hunterQuests"></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="emoji">⏳</span> Life Tracker</div>
+    <div id="lifeTrackerBody"></div>
   </div>
 </div>
 
@@ -5966,7 +5993,7 @@ const LANGS = {
   en:{
     // Nav
     nav_log:"Log",nav_futureme:"Future Me",nav_waves:"Neural Beats",nav_ai:"AI Hub",nav_analysis:"Analysis",nav_health:"Health",
-    nav_games:"Games",nav_dreams:"Dreams",nav_memory:"Memory",nav_calendar:"Calendar",
+    nav_games:"Games",nav_dreams:"Dreams",nav_memory:"Memory",nav_calendar:"Calendar",nav_hunter:"Hunter",
     nav_settings:"Settings",nav_world:"World",nav_path:"Path",nav_career:"Career",nav_science:"Science",nav_system:"System",nav_guide:"Guide",nav_vault:"Vault",nav_wealth:"Wealth",nav_oracle:"Oracle",
     // Daily Log
     daily_log:"Daily Consciousness Log",entry_info:"Entry Info",date:"Date",time_of_day:"Time of Day",
@@ -6764,6 +6791,7 @@ const NAV_ITEMS=[
   {id:'science',icon:'🔬',key:'nav_science'},
   {id:'media',icon:'📸',key:'nav_memory'},
   {id:'calendar',icon:'📅',key:'nav_calendar'},
+  {id:'hunter',icon:'⚔️',key:'nav_hunter'},
   {id:'world',icon:'🌍',key:'nav_world'},
   {id:'settings',icon:'⚙️',key:'nav_settings'},
   {id:'system',icon:'🧩',key:'nav_system'},
@@ -6822,6 +6850,11 @@ function switchTab(tabId) {
       const dateEl=document.getElementById('reportDate');
       if(dateEl) dateEl.innerText=new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'});
     },100);
+  }
+  if(id==='hunter'){
+    setTimeout(()=>{
+      if(typeof HunterSystem !== 'undefined'){ HunterSystem.render(); HunterSystem.renderLife(); }
+    },50);
   }
 
   // Hide all tabs
@@ -20028,9 +20061,45 @@ const AgentCoach = (() => {
     gentleTone();
     if (typeof showToast === 'function') showToast('🔔 ' + label, 4000);
     setTimeout(() => speak(verbalText), 1200);
-    if (Notification.permission === 'granted') {
+    notifyOS(label, verbalText);
+  }
+
+  // Prefer routing through the active Service Worker registration —
+  // this is noticeably more reliable than the plain Notification API
+  // once the tab is minimized/backgrounded (Chrome on Android in
+  // particular throttles or drops bare `new Notification()` calls from
+  // an unfocused tab, but honors reg.showNotification()).
+  // IMPORTANT: this still requires the browser app/process to be alive
+  // in the background — Android can still kill it if the OS decides to
+  // free memory, and a fully force-closed / swiped-away app will not
+  // fire. There is no web API that guarantees delivery once the app is
+  // truly closed; that reliability level needs a native wrapper.
+  function notifyOS(label, verbalText) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready.then(reg => {
+        reg.showNotification('COS Coach · ' + label, {
+          body: verbalText,
+          icon: './icon-192.png',
+          vibrate: [80, 40, 80],
+          tag: 'cos-coach-' + label,
+        }).catch(() => {
+          try { new Notification('COS Coach · ' + label, { body: verbalText }); } catch (e) {}
+        });
+      }).catch(() => {
+        try { new Notification('COS Coach · ' + label, { body: verbalText }); } catch (e) {}
+      });
+    } else {
       try { new Notification('COS Coach · ' + label, { body: verbalText }); } catch (e) {}
     }
+  }
+
+  function requestReminderPermission() {
+    if (!('Notification' in window)) { showToast?.('Notifications not supported on this browser'); return; }
+    if (Notification.permission === 'granted') { showToast?.('Already enabled'); return; }
+    Notification.requestPermission().then(p => {
+      showToast?.(p === 'granted' ? 'Reminders enabled' : 'Permission denied — reminders will only show while the tab is open');
+    });
   }
 
   // ── 4. Default routine — 5am wake / 8pm sleep ──
@@ -20129,7 +20198,7 @@ Keep it concise, practical, no fluff.`;
 
   patchCheckAlarms();
 
-  return { speak, remind, installDefaultRoutine, generateDailyPlan, gentleTone };
+  return { speak, remind, installDefaultRoutine, generateDailyPlan, gentleTone, requestReminderPermission };
 })();
 
 window.AgentCoach = AgentCoach;
@@ -20143,6 +20212,264 @@ async function runAgentDailyPlan() {
   AgentCoach.speak('Your plan for today is ready. Check the top three priorities and let\'s get moving.');
 }
 window.runAgentDailyPlan = runAgentDailyPlan;
+
+const HunterSystem = (() => {
+  const PROFILE_KEY = 'hunter_profile_v1';
+  const LIFE_KEY = 'life_tracker_v1';
+
+  const STAT_META = {
+    STR: { label: 'STRENGTH', color: '#f43f5e' },
+    VIT: { label: 'VITALITY', color: '#22c55e' },
+    AGI: { label: 'AGILITY', color: '#38bdf8' },
+    PER: { label: 'PERCEPTION', color: '#f59e0b' },
+    INT: { label: 'INTELLIGENCE', color: '#a78bfa' },
+  };
+
+  const QUEST_DEFS = [
+    { id: 'pushups', stat: 'STR', name: 'Push-Ups', target: 100, unit: 'reps', step: 20 },
+    { id: 'squats', stat: 'VIT', name: 'Squats', target: 100, unit: 'reps', step: 20 },
+    { id: 'situps', stat: 'AGI', name: 'Sit-Ups', target: 100, unit: 'reps', step: 20 },
+    { id: 'run', stat: 'PER', name: 'Run', target: 5, unit: 'km', step: 1 },
+    { id: 'focus', stat: 'INT', name: 'Mobility / Focus', target: 15, unit: 'min', step: 5 },
+    { id: 'spotjog', stat: 'AGI', name: 'Spot Jogging', target: 100, unit: 'reps', step: 20 },
+    { id: 'highknees', stat: 'VIT', name: 'High Knees', target: 100, unit: 'reps', step: 20 },
+  ];
+
+  const RANKS = [
+    { min: 1, name: 'E', color: '#94a3b8' }, { min: 5, name: 'D', color: '#4ade80' },
+    { min: 10, name: 'C', color: '#38bdf8' }, { min: 15, name: 'B', color: '#818cf8' },
+    { min: 20, name: 'A', color: '#c084fc' }, { min: 25, name: 'S', color: '#f472b6' },
+    { min: 30, name: 'SS', color: '#fb923c' }, { min: 40, name: 'SSS', color: '#facc15' },
+  ];
+
+  const CLASSES = {
+    STR: { name: 'Fighter', emoji: '⚔️', blurb: 'Front-line brute force. Highest raw power.' },
+    VIT: { name: 'Tank', emoji: '🛡️', blurb: 'Unbreakable endurance. Built to outlast anyone.' },
+    AGI: { name: 'Assassin', emoji: '🗡️', blurb: 'Speed and precision above all else.' },
+    PER: { name: 'Ranger', emoji: '🏹', blurb: 'Reads the terrain, never misses a beat.' },
+    INT: { name: 'Mage', emoji: '✨', blurb: 'Discipline and focus fuel every gain.' },
+  };
+  const CLASS_UNLOCK_LEVEL = 5;
+
+  function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+  function loadProfile() {
+    try {
+      const raw = localStorage.getItem(PROFILE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return { stats: { STR: 1, VIT: 1, AGI: 1, PER: 1, INT: 1 }, log: {}, gender: 'male' };
+  }
+  function saveProfile(p) { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); }
+
+  function getTodayLog(p) {
+    const d = todayStr();
+    if (!p.log[d]) p.log[d] = {};
+    return p.log[d];
+  }
+
+  function bump(questId, delta) {
+    const p = loadProfile();
+    const q = QUEST_DEFS.find(x => x.id === questId);
+    if (!q) return;
+    const dayLog = getTodayLog(p);
+    const cur = dayLog[questId] || 0;
+    const next = Math.max(0, cur + delta);
+    dayLog[questId] = next;
+    const wasComplete = cur >= q.target;
+    const isComplete = next >= q.target;
+    if (isComplete && !wasComplete) {
+      p.stats[q.stat] = (p.stats[q.stat] || 1) + 1;
+      if (typeof showToast === 'function') showToast('Quest complete: ' + q.name + ' (+1 ' + q.stat + ')');
+    }
+    if (!isComplete && wasComplete) {
+      p.stats[q.stat] = Math.max(1, (p.stats[q.stat] || 1) - 1);
+    }
+    saveProfile(p);
+    render();
+  }
+
+  function totalLevel(stats) {
+    return Object.values(stats).reduce((a, b) => a + b, 0);
+  }
+  function getRank(level) {
+    let r = RANKS[0];
+    for (const rk of RANKS) if (level >= rk.min) r = rk;
+    return r;
+  }
+  function getClass(stats, level) {
+    if (level < CLASS_UNLOCK_LEVEL) return null;
+    let best = 'STR', bv = -1;
+    Object.keys(stats).forEach(k => { if (stats[k] > bv) { bv = stats[k]; best = k; } });
+    return CLASSES[best];
+  }
+
+  function radarSVG(stats) {
+    const keys = Object.keys(STAT_META);
+    const max = Math.max(10, ...keys.map(k => stats[k] || 1));
+    const cx = 100, cy = 100, r = 80;
+    const pts = keys.map((k, i) => {
+      const angle = (Math.PI * 2 * i / keys.length) - Math.PI / 2;
+      const val = (stats[k] || 1) / max;
+      const x = cx + Math.cos(angle) * r * val;
+      const y = cy + Math.sin(angle) * r * val;
+      return x + ',' + y;
+    }).join(' ');
+    const axisLines = keys.map((k, i) => {
+      const angle = (Math.PI * 2 * i / keys.length) - Math.PI / 2;
+      const x = cx + Math.cos(angle) * r;
+      const y = cy + Math.sin(angle) * r;
+      const lx = cx + Math.cos(angle) * (r + 16);
+      const ly = cy + Math.sin(angle) * (r + 16);
+      return '<line x1="' + cx + '" y1="' + cy + '" x2="' + x + '" y2="' + y + '" stroke="var(--border)" stroke-width="1"/>' +
+        '<text x="' + lx + '" y="' + ly + '" font-size="9" fill="var(--text3)" text-anchor="middle">' + k + '</text>';
+    }).join('');
+    return '<svg viewBox="0 0 200 200" style="width:100%;max-width:220px;display:block;margin:0 auto">' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="var(--border)"/>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + (r * 0.5) + '" fill="none" stroke="var(--border)"/>' +
+      axisLines +
+      '<polygon points="' + pts + '" fill="rgba(139,92,246,0.35)" stroke="#a78bfa" stroke-width="2"/>' +
+      '</svg>';
+  }
+
+  // Original abstract training-avatar (not licensed character art).
+  // Proportions scale with stats: STR+VIT widen shoulders/arms (muscle),
+  // AGI+PER narrow the waist (leanness), overall level adds a soft glow.
+  function avatarSVG(profile) {
+    const stats = profile.stats;
+    const level = totalLevel(stats);
+    const muscle = Math.min(1, ((stats.STR || 1) + (stats.VIT || 1)) / 30);
+    const lean = Math.min(1, ((stats.AGI || 1) + (stats.PER || 1)) / 30);
+    const glow = Math.min(1, level / 40);
+    const isMale = profile.gender !== 'female';
+    const shoulderW = 34 + muscle * 16;
+    const waistW = isMale ? (24 - lean * 6) : (20 - lean * 4);
+    const armW = 6 + muscle * 5;
+    const legW = 10 + muscle * 4;
+    const chestGlow = 'rgba(167,139,250,' + (0.15 + glow * 0.35) + ')';
+    return '<svg viewBox="0 0 120 220" style="width:130px;display:block;margin:0 auto">' +
+      '<defs><radialGradient id="hgGlow" cx="50%" cy="35%" r="60%">' +
+      '<stop offset="0%" stop-color="' + chestGlow + '"/><stop offset="100%" stop-color="transparent"/>' +
+      '</radialGradient></defs>' +
+      '<ellipse cx="60" cy="90" rx="55" ry="70" fill="url(#hgGlow)"/>' +
+      '<circle cx="60" cy="30" r="16" fill="var(--bg3)" stroke="#a78bfa" stroke-width="2"/>' +
+      '<path d="M ' + (60 - shoulderW / 2) + ' 52 Q 60 42 ' + (60 + shoulderW / 2) + ' 52 L ' + (60 + waistW / 2) + ' 120 Q 60 128 ' + (60 - waistW / 2) + ' 120 Z" fill="var(--bg3)" stroke="#a78bfa" stroke-width="2"/>' +
+      '<rect x="' + (60 - shoulderW / 2 - armW) + '" y="54" width="' + armW + '" height="' + (60 + muscle * 10) + '" rx="' + (armW / 2) + '" fill="var(--bg3)" stroke="#a78bfa" stroke-width="1.5"/>' +
+      '<rect x="' + (60 + shoulderW / 2) + '" y="54" width="' + armW + '" height="' + (60 + muscle * 10) + '" rx="' + (armW / 2) + '" fill="var(--bg3)" stroke="#a78bfa" stroke-width="1.5"/>' +
+      '<rect x="' + (60 - waistW / 2) + '" y="120" width="' + legW + '" height="70" rx="' + (legW / 2) + '" fill="var(--bg3)" stroke="#a78bfa" stroke-width="1.5"/>' +
+      '<rect x="' + (60 + waistW / 2 - legW) + '" y="120" width="' + legW + '" height="70" rx="' + (legW / 2) + '" fill="var(--bg3)" stroke="#a78bfa" stroke-width="1.5"/>' +
+      '</svg>';
+  }
+
+  function render() {
+    const p = loadProfile();
+    const level = totalLevel(p.stats);
+    const rank = getRank(level);
+    const cls = getClass(p.stats, level);
+    const dayLog = getTodayLog(p);
+    saveProfile(p);
+
+    const rankEl = document.getElementById('hunterRank');
+    if (rankEl) rankEl.innerHTML = '<span style="color:' + rank.color + ';font-size:28px;font-weight:800">' + rank.name + '-Rank</span> <span style="color:var(--text3);font-size:12px">&middot; Level ' + level + '</span>';
+
+    const classEl = document.getElementById('hunterClass');
+    if (classEl) classEl.innerHTML = cls
+      ? cls.emoji + ' <b>' + cls.name + '</b> &mdash; <span style="color:var(--text3)">' + cls.blurb + '</span>'
+      : '\u{1F512} Class unlocks at Level ' + CLASS_UNLOCK_LEVEL + ' (currently ' + level + ')';
+
+    const radarEl = document.getElementById('hunterRadar');
+    if (radarEl) radarEl.innerHTML = radarSVG(p.stats);
+
+    const avatarEl = document.getElementById('hunterAvatar');
+    if (avatarEl) avatarEl.innerHTML = avatarSVG(p);
+
+    const questsEl = document.getElementById('hunterQuests');
+    if (questsEl) {
+      questsEl.innerHTML = QUEST_DEFS.map(q => {
+        const val = dayLog[q.id] || 0;
+        const pct = Math.min(100, (val / q.target) * 100);
+        const done = val >= q.target;
+        return '<div style="margin-bottom:12px">' +
+          '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">' +
+          '<span>' + (done ? '\u2705 ' : '') + q.name + ' <span style="color:var(--text3)">(' + STAT_META[q.stat].label + ')</span></span>' +
+          '<span style="color:var(--text3)">' + val + '/' + q.target + ' ' + q.unit + '</span>' +
+          '</div>' +
+          '<div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:' + pct + '%"></div></div>' +
+          '<div style="display:flex;gap:8px;margin-top:6px">' +
+          '<button class="btn btn-secondary btn-sm" onclick="HunterSystem.bump(\'' + q.id + '\',-' + q.step + ')">&minus;' + q.step + '</button>' +
+          '<button class="btn btn-primary btn-sm" onclick="HunterSystem.bump(\'' + q.id + '\',' + q.step + ')">+' + q.step + ' ' + q.unit + '</button>' +
+          '</div></div>';
+      }).join('');
+    }
+  }
+
+  function setGender(g) {
+    const p = loadProfile();
+    p.gender = g;
+    saveProfile(p);
+    render();
+  }
+
+  // ── Life Tracker ──
+  function loadLife() {
+    try { const raw = localStorage.getItem(LIFE_KEY); if (raw) return JSON.parse(raw); } catch (e) {}
+    return { birthDate: null, lifeExpectancy: 80 };
+  }
+  function saveLife(l) { localStorage.setItem(LIFE_KEY, JSON.stringify(l)); }
+
+  function setBirthDate(dateStr) {
+    if (!dateStr) return;
+    const l = loadLife(); l.birthDate = dateStr; saveLife(l); renderLife();
+  }
+  function setLifeExpectancy(years) {
+    const l = loadLife(); l.lifeExpectancy = Number(years) || 80; saveLife(l); renderLife();
+  }
+  function editLife() {
+    const l = loadLife(); l.birthDate = null; saveLife(l); renderLife();
+  }
+
+  function renderLife() {
+    const l = loadLife();
+    const wrap = document.getElementById('lifeTrackerBody');
+    if (!wrap) return;
+    if (!l.birthDate) {
+      wrap.innerHTML = '<div style="font-size:12px;color:var(--text3);margin-bottom:8px">Set your birth date to see live progress for your day, week, month, year, and life.</div>' +
+        '<input type="date" class="form-input" id="lifeBirthInput" style="margin-bottom:8px">' +
+        '<button class="btn btn-primary btn-sm btn-block" onclick="HunterSystem.setBirthDate(document.getElementById(\'lifeBirthInput\').value)">Save</button>';
+      return;
+    }
+    const now = new Date();
+    const birth = new Date(l.birthDate + 'T00:00:00');
+    const msDay = 86400000;
+    const dayPct = ((now - new Date(now.toDateString())) / msDay) * 100;
+    const startOfWeek = new Date(now); const dow = (now.getDay() === 0 ? 7 : now.getDay());
+    startOfWeek.setDate(now.getDate() - (dow - 1)); startOfWeek.setHours(0, 0, 0, 0);
+    const weekPct = ((now - startOfWeek) / (msDay * 7)) * 100;
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const monthPct = ((now - startOfMonth) / (msDay * daysInMonth)) * 100;
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+    const yearLen = ((now.getFullYear() % 4 === 0 && now.getFullYear() % 100 !== 0) || now.getFullYear() % 400 === 0) ? 366 : 365;
+    const yearPct = ((now - startOfYear) / (msDay * yearLen)) * 100;
+    const lifeDays = l.lifeExpectancy * 365.25;
+    const livedDays = (now - birth) / msDay;
+    const lifePct = Math.min(100, (livedDays / lifeDays) * 100);
+    const yearsLeft = Math.max(0, (lifeDays - livedDays) / 365.25);
+
+    const row = (label, pct) => '<div style="margin-bottom:10px">' +
+      '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>' + label + '</span><span style="color:var(--text3)">' + pct.toFixed(1) + '%</span></div>' +
+      '<div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:' + Math.min(100, pct) + '%"></div></div></div>';
+
+    wrap.innerHTML = row('Today', dayPct) + row('This Week', weekPct) + row('This Month', monthPct) +
+      row('This Year', yearPct) + row('Your Life (' + l.lifeExpectancy + 'yr est.)', lifePct) +
+      '<div style="font-size:12px;color:var(--text3);margin-top:6px">Roughly ' + yearsLeft.toFixed(1) + ' years remaining at this estimate &mdash; a perspective tool, not a prediction.</div>' +
+      '<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="HunterSystem.editLife()">Edit</button>';
+  }
+
+  return { render, bump, setGender, renderLife, setBirthDate, setLifeExpectancy, editLife };
+})();
+window.HunterSystem = HunterSystem;
+
 
 // ── Optional: run once on load to patch alarms even if checkAlarms
 // wasn't defined yet at parse time (covers async init order) ──
