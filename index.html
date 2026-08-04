@@ -20284,9 +20284,9 @@ const HunterSystem = (() => {
     { id: 'squats', stat: 'VIT', name: 'Squats', target: 100, unit: 'reps', step: 20 },
     { id: 'situps', stat: 'AGI', name: 'Sit-Ups', target: 100, unit: 'reps', step: 20 },
     { id: 'run', stat: 'PER', name: 'Run', target: 5, unit: 'km', step: 1 },
-    { id: 'focus', stat: 'INT', name: 'Mobility / Focus', target: 15, unit: 'min', step: 5 },
+    { id: 'focus', stat: 'INT', name: 'Mobility / Focus', target: 60, unit: 'min', step: 10 },
     { id: 'spotjog', stat: 'AGI', name: 'Spot Jogging', target: 100, unit: 'reps', step: 20 },
-    { id: 'highknees', stat: 'VIT', name: 'High Knees', target: 100, unit: 'reps', step: 20 },
+    { id: 'hindubarpee', stat: 'VIT', name: 'Hindu Burpee', target: 100, unit: 'reps', step: 20 },
   ];
 
   const RANKS = [
@@ -20356,6 +20356,21 @@ const HunterSystem = (() => {
     let best = 'STR', bv = -1;
     Object.keys(stats).forEach(k => { if (stats[k] > bv) { bv = stats[k]; best = k; } });
     return CLASSES[best];
+  }
+
+  // 10-box segmented progress bar: each box = 10%, partially fills as you
+  // cross into it, so progress is countable at a glance, not just a smear.
+  function segmentedBar(pct) {
+    pct = Math.max(0, Math.min(100, pct));
+    let boxes = '';
+    for (let i = 0; i < 10; i++) {
+      const segStart = i * 10;
+      const segFillPct = Math.max(0, Math.min(100, (pct - segStart) * 10));
+      boxes += '<div style="flex:1;height:16px;border-radius:4px;background:var(--bg3);border:1px solid var(--border);overflow:hidden;position:relative">' +
+        '<div style="position:absolute;left:0;top:0;bottom:0;width:' + segFillPct + '%;background:linear-gradient(90deg,#7c3aed,#c026d3);transition:width .3s"></div>' +
+        '</div>';
+    }
+    return '<div style="display:flex;gap:3px;margin:5px 0">' + boxes + '</div>';
   }
 
   function radarSVG(stats) {
@@ -20443,12 +20458,12 @@ const HunterSystem = (() => {
         const val = dayLog[q.id] || 0;
         const pct = Math.min(100, (val / q.target) * 100);
         const done = val >= q.target;
-        return '<div style="margin-bottom:12px">' +
-          '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">' +
+        return '<div style="margin-bottom:14px">' +
+          '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">' +
           '<span>' + (done ? '\u2705 ' : '') + q.name + ' <span style="color:var(--text3)">(' + STAT_META[q.stat].label + ')</span></span>' +
-          '<span style="color:var(--text3)">' + val + '/' + q.target + ' ' + q.unit + '</span>' +
+          '<span style="color:var(--text3)">' + val + '/' + q.target + ' ' + q.unit + ' &middot; ' + pct.toFixed(0) + '%</span>' +
           '</div>' +
-          '<div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:' + pct + '%"></div></div>' +
+          segmentedBar(pct) +
           '<div style="display:flex;gap:8px;margin-top:6px">' +
           '<button class="btn btn-secondary btn-sm" onclick="HunterSystem.bump(\'' + q.id + '\',-' + q.step + ')">&minus;' + q.step + '</button>' +
           '<button class="btn btn-primary btn-sm" onclick="HunterSystem.bump(\'' + q.id + '\',' + q.step + ')">+' + q.step + ' ' + q.unit + '</button>' +
@@ -20495,6 +20510,7 @@ const HunterSystem = (() => {
     const now = new Date();
     const birth = new Date(l.birthDate + 'T00:00:00');
     const msDay = 86400000;
+    const hourPct = ((now.getMinutes() * 60 + now.getSeconds()) / 3600) * 100;
     const dayPct = ((now - new Date(now.toDateString())) / msDay) * 100;
     const startOfWeek = new Date(now); const dow = (now.getDay() === 0 ? 7 : now.getDay());
     startOfWeek.setDate(now.getDate() - (dow - 1)); startOfWeek.setHours(0, 0, 0, 0);
@@ -20510,12 +20526,17 @@ const HunterSystem = (() => {
     const lifePct = Math.min(100, (livedDays / lifeDays) * 100);
     const yearsLeft = Math.max(0, (lifeDays - livedDays) / 365.25);
 
-    const row = (label, pct) => '<div style="margin-bottom:10px">' +
-      '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>' + label + '</span><span style="color:var(--text3)">' + pct.toFixed(1) + '%</span></div>' +
-      '<div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:' + Math.min(100, pct) + '%"></div></div></div>';
+    const row = (label, pct, sub) => '<div style="margin-bottom:14px">' +
+      '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">' +
+      '<span>' + label + '</span><span style="color:var(--text3)">' + (sub ? sub + ' &middot; ' : '') + pct.toFixed(1) + '%</span></div>' +
+      segmentedBar(pct) + '</div>';
 
-    wrap.innerHTML = row('Today', dayPct) + row('This Week', weekPct) + row('This Month', monthPct) +
-      row('This Year', yearPct) + row('Your Life (' + l.lifeExpectancy + 'yr est.)', lifePct) +
+    wrap.innerHTML = row('This Hour', hourPct, now.getMinutes() + '/60 min') +
+      row('Today', dayPct, now.getHours() + '/24 hr') +
+      row('This Week', weekPct, dow + '/7 days') +
+      row('This Month', monthPct, now.getDate() + '/' + daysInMonth + ' days') +
+      row('This Year', yearPct, Math.ceil((now - startOfYear) / msDay) + '/' + yearLen + ' days') +
+      row('Your Life (' + l.lifeExpectancy + 'yr est.)', lifePct, (livedDays / 365.25).toFixed(1) + '/' + l.lifeExpectancy + 'yr') +
       '<div style="font-size:12px;color:var(--text3);margin-top:6px">Roughly ' + yearsLeft.toFixed(1) + ' years remaining at this estimate &mdash; a perspective tool, not a prediction.</div>' +
       '<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="HunterSystem.editLife()">Edit</button>';
   }
