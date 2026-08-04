@@ -2695,6 +2695,14 @@ html,body{height:100%;font-family:"DM Sans",sans-serif;background:var(--bg);colo
         <div style="font-size:24px;flex-shrink:0">7️⃣</div>
         <div><div style="font-weight:700;font-size:14px">Talk to your Future Self in Future Me</div><div style="font-size:12px;color:var(--text3);margin-top:3px">Answer the daily discovery question, then ask your future self anything — it reasons from where your current patterns are actually heading, not generic advice.</div></div>
       </div>
+      <div style="display:flex;gap:12px;align-items:flex-start;background:var(--bg3);border-radius:10px;padding:12px">
+        <div style="font-size:24px;flex-shrink:0">8️⃣</div>
+        <div><div style="font-weight:700;font-size:14px">Set up your Agent Coach in Calendar & Alarms</div><div style="font-size:12px;color:var(--text3);margin-top:3px">Install the voice routine for workout, study, and hydration reminders — a soft tone plus a spoken nudge — and generate an AI daily plan any time.</div></div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:flex-start;background:var(--bg3);border-radius:10px;padding:12px">
+        <div style="font-size:24px;flex-shrink:0">9️⃣</div>
+        <div><div style="font-weight:700;font-size:14px">Level up in the Hunter System</div><div style="font-size:12px;color:var(--text3);margin-top:3px">Log daily quests (push-ups, squats, spot jogging, high knees, and more) to raise your stats, unlock a rank and class, and watch your avatar change with you. Set your birth date there too for a live Life Tracker.</div></div>
+      </div>
     </div>
   </div>
 
@@ -11721,6 +11729,7 @@ function buildGuideNavMap(){
   const el=document.getElementById('guideNavMap');if(!el)return;
   const items=[
     {icon:'📝',name:'Daily Log',tab:'log',desc:'20-metric mind tracker'},
+    {icon:'🔭',name:'Future Me',tab:'futureme',desc:'Talk to your future self'},
     {icon:'🎵',name:'Brainwave Audio',tab:'waves',desc:'State-shifting frequencies'},
     {icon:'🤖',name:'AI Hub',tab:'ai',desc:'Multi-AI consciousness coach'},
     {icon:'📊',name:'Analysis',tab:'analysis',desc:'Patterns & predictions'},
@@ -11730,6 +11739,13 @@ function buildGuideNavMap(){
     {icon:'🌍',name:'World Intel',tab:'world',desc:'Geopolitics & markets'},
     {icon:'🔬',name:'Science Feed',tab:'science',desc:'Frontier discoveries'},
     {icon:'🛤️',name:'Study/Career',tab:'path',desc:'AI learning coach'},
+    {icon:'🔮',name:'Vault',tab:'vault',desc:'Your consciousness, preserved'},
+    {icon:'🌀',name:'Oracle',tab:'oracle',desc:'Deep AI insight & reflection'},
+    {icon:'💰',name:'Wealth',tab:'wealth',desc:'Live markets & money mindset'},
+    {icon:'📸',name:'Voice & Media',tab:'media',desc:'Voice memos & memory archive'},
+    {icon:'📅',name:'Calendar & Alarms',tab:'calendar',desc:'Alarms + voice Agent Coach & AI daily planner'},
+    {icon:'⚔️',name:'Hunter System',tab:'hunter',desc:'Gamified quests, stats, rank & avatar'},
+    {icon:'⚙️',name:'Settings',tab:'settings',desc:'Theme, account, preferences'},
     {icon:'🧩',name:'System',tab:'system',desc:'Themes, account, settings'},
   ];
   el.innerHTML=items.map(i=>`<div onclick="switchTab('${i.tab}')" style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px;cursor:pointer;transition:all .2s" onmouseenter="this.style.borderColor='var(--primary)'" onmouseleave="this.style.borderColor='var(--border)'"><div style="font-size:20px;margin-bottom:4px">${i.icon}</div><div style="font-weight:700;font-size:12px">${i.name}</div><div style="font-size:10px;color:var(--text3)">${i.desc}</div></div>`).join('');
