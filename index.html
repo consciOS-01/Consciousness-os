@@ -4241,6 +4241,18 @@ html,body{height:100%;font-family:"DM Sans",sans-serif;background:var(--bg);colo
   </div>
 
   <div class="card">
+    <div class="card-title"><span class="emoji">🔥</span> Challenges</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Start a streak challenge — every day gets ticked ✅ once done, or crossed ❌ automatically once it passes unmarked. Track exactly how much is done and how much is left.</div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" onclick="ChallengeTracker.create('30-Day Challenge',30)">30 Days</button>
+      <button class="btn btn-secondary btn-sm" onclick="ChallengeTracker.create('75 Hard',75)">75 Days</button>
+      <button class="btn btn-secondary btn-sm" onclick="ChallengeTracker.create('100-Day Challenge',100)">100 Days</button>
+      <button class="btn btn-primary btn-sm" onclick="ChallengeTracker.createCustom()">+ Custom</button>
+    </div>
+    <div id="challengesList"></div>
+  </div>
+
+  <div class="card">
     <div class="card-title"><span class="emoji">📝</span> Reminders</div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">Reminder</label>
@@ -10105,7 +10117,7 @@ function renderCalendar(){
   let html=['Su','Mo','Tu','We','Th','Fr','Sa'].map(d=>`<div class="cal-day-header">${d}</div>`).join('');
   html+=Array(first).fill('<div></div>').join('');
   for(let d=1;d<=days;d++){const ds=`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;html+=`<div class="cal-day${ds===today?' today':''}${logs.includes(ds)?' has-log':''}${dreams.includes(ds)?' has-dream':''}">${d}</div>`;}
-  el.innerHTML=html;renderAlarms();renderReminders();
+  el.innerHTML=html;renderAlarms();renderReminders();if(typeof ChallengeTracker!=='undefined')ChallengeTracker.render();
 }
 function calNav(dir){calDate=new Date(calDate.getFullYear(),calDate.getMonth()+dir,1);renderCalendar();}
 function addAlarm(){
@@ -10173,6 +10185,17 @@ const GEO_EVENTS=[
   {title:'BRICS Currency Alternative Push',meta:'Dedollarization · Long-term structural shift',impact:'↓ USD dominance, ↑ Gold, ↑ EM assets',region:'🌐'},
   {title:'Japan Yield Curve Control Shift',meta:'BOJ policy · Global bond markets',impact:'↑ JPY, ↓ US bonds held by Japan, ↑ volatility',region:'🇯🇵'},
 ];
+// expandGeoEvent() was called by every World Intel event card's onclick
+// but was never defined anywhere — tapping a card silently did nothing.
+function expandGeoEvent(title) {
+  const ev = GEO_EVENTS.find(e => e.title === title);
+  if (!ev) return;
+  if (typeof showToast === 'function') {
+    showToast(ev.region + ' ' + ev.title + ' — ' + ev.meta + ' | Market impact: ' + ev.impact, 6000);
+  } else {
+    alert(ev.region + ' ' + ev.title + '\n\n' + ev.meta + '\n\nMarket impact: ' + ev.impact);
+  }
+}
 const GEO_LINKS=[
   {cause:'⚔️ War / Conflict',effect:'↑ Gold (safe haven), ↑ Oil (supply risk), ↓ Stocks (risk off)'},
   {cause:'🏦 Rate Hikes',effect:'↓ Crypto, ↓ Growth stocks, ↑ USD, ↑ Bonds yield'},
@@ -14996,6 +15019,42 @@ function cosBrainSync() {
     if (oState) { COS_BRAIN.oracle = oState; }
   } catch(e) {}
 
+  // ── HUNTER SYSTEM ──
+  try {
+    const hp = JSON.parse(localStorage.getItem('hunter_profile_v1') || 'null');
+    if (hp) {
+      const level = Object.values(hp.stats || {}).reduce((a, b) => a + b, 0);
+      const todayKey = new Date().toISOString().slice(0, 10);
+      const todayLog = (hp.log && hp.log[todayKey]) || {};
+      const questsDoneToday = Object.keys(todayLog).length;
+      COS_BRAIN.hunter = { level, stats: hp.stats, questsDoneToday };
+      HIVE_MIND.sync('hunter', COS_BRAIN.hunter);
+    }
+  } catch (e) {}
+
+  // ── LIFE TRACKER ──
+  try {
+    const lt = JSON.parse(localStorage.getItem('life_tracker_v1') || 'null');
+    if (lt && lt.birthDate) {
+      const livedDays = (new Date() - new Date(lt.birthDate + 'T00:00:00')) / 86400000;
+      const lifePct = Math.min(100, (livedDays / (lt.lifeExpectancy * 365.25)) * 100);
+      COS_BRAIN.lifeTracker = { lifeExpectancy: lt.lifeExpectancy, lifePct: lifePct.toFixed(1) };
+      HIVE_MIND.sync('lifeTracker', COS_BRAIN.lifeTracker);
+    }
+  } catch (e) {}
+
+  // ── CHALLENGES ──
+  try {
+    const challenges = JSON.parse(localStorage.getItem('cos_challenges_v1') || '[]');
+    if (challenges.length && typeof ChallengeTracker !== 'undefined') {
+      COS_BRAIN.challenges = challenges.map(c => {
+        const s = ChallengeTracker.stats(c);
+        return { name: c.name, pct: s.pct.toFixed(0), streak: s.streak, missed: s.missed, remaining: s.remaining };
+      });
+      HIVE_MIND.sync('challenges', COS_BRAIN.challenges);
+    }
+  } catch (e) {}
+
   COS_BRAIN.lastSync = Date.now();
   
   // ── GENERATE CROSS-TAB ALERTS ──
@@ -15006,6 +15065,11 @@ function cosBrainSync() {
   if (c.sleep7d && parseFloat(c.sleep7d) < 5) COS_BRAIN.alerts.push({ type: 'health', msg: `😴 Low sleep quality (${c.sleep7d}/10) — glymphatic system under-cleaning your brain` });
   if (w.cashflow && w.cashflow < 0) COS_BRAIN.alerts.push({ type: 'wealth', msg: `⚠️ Negative cashflow (₹${w.cashflow}/mo) — expenses exceed income` });
   if (w.passive !== undefined && w.expenses && w.passive < w.expenses * 0.1) COS_BRAIN.alerts.push({ type: 'wealth', msg: `💡 Passive income = ${Math.round(w.passive/w.expenses*100)}% of expenses — build more income streams` });
+  const hu = COS_BRAIN.hunter;
+  if (hu && hu.questsDoneToday === 0 && c.stress7d && parseFloat(c.stress7d) > 6) COS_BRAIN.alerts.push({ type: 'hunter', msg: `⚔️ Stress is high and no Hunter quests logged today — physical activity is one of the fastest levers you have on stress` });
+  if (COS_BRAIN.challenges && COS_BRAIN.challenges.length) {
+    COS_BRAIN.challenges.forEach(ch => { if (ch.streak === 0 && ch.missed > 0) COS_BRAIN.alerts.push({ type: 'challenge', msg: `🔥 "${ch.name}" streak is broken (${ch.missed} missed days) — restart it today before it slips further` }); });
+  }
   
   // Update CIL pulse indicator
   updateCILPulse();
@@ -15045,6 +15109,10 @@ function buildCOSBrainContext() {
   
   if (b.world.topStories?.length) ctx += `\n\n── LIVE WORLD NEWS ── ${b.world.topStories.join(' | ')}`;
   if (b.science.topStories?.length) ctx += `\n── LIVE SCIENCE NEWS ── ${b.science.topStories.join(' | ')}`;
+
+  if (b.hunter) ctx += `\n\n── HUNTER SYSTEM ── Level ${b.hunter.level} · ${b.hunter.questsDoneToday} quests logged today`;
+  if (b.lifeTracker) ctx += `\n\n── LIFE TRACKER ── ${b.lifeTracker.lifePct}% through an estimated ${b.lifeTracker.lifeExpectancy}-year lifespan`;
+  if (b.challenges?.length) ctx += `\n\n── ACTIVE CHALLENGES ── ${b.challenges.map(ch => `${ch.name}: ${ch.pct}% (${ch.streak}d streak)`).join(' | ')}`;
   
   if (b.alerts.length) ctx += `\n\n── SYSTEM ALERTS ── ${b.alerts.map(a=>a.msg).join(' · ')}`;
   
@@ -15096,6 +15164,9 @@ function getHiveContextFor(feature) {
     if (b.calorie?.todayKcal) lines.push('NUTRITION: ' + b.calorie.todayKcal + 'kcal today (goal:' + b.calorie.goal + ')');
     if (b.games?.recentScore) lines.push('BRAIN TRAINING: last game ' + b.games.gameName + ' score ' + b.games.recentScore);
     if (b.lucid?.intention) lines.push('LUCID INTENTION: "' + b.lucid.intention + '"');
+    if (b.hunter) lines.push('HUNTER SYSTEM: level ' + b.hunter.level + ', ' + b.hunter.questsDoneToday + ' quests today');
+    if (b.lifeTracker) lines.push('LIFE TRACKER: ' + b.lifeTracker.lifePct + '% through estimated lifespan');
+    if (b.challenges?.length) lines.push('CHALLENGES: ' + b.challenges.map(function(ch){return ch.name+' '+ch.pct+'% ('+ch.streak+'d streak)';}).join(' | '));
   }
   if (feature === 'world' || feature === 'geo') {
     if (b.world?.topStories?.length) lines.push('WORLD NEWS: ' + b.world.topStories.slice(0,2).join(' | '));
@@ -18559,6 +18630,10 @@ function signOutOnly() {
     });
   }
 }
+// signOut() was referenced by the Account card's Sign Out button but was
+// never defined — that button silently did nothing when tapped. Aliasing
+// it to the same safe sign-out behavior as signOutOnly().
+function signOut() { signOutOnly(); }
 
 function confirmDeleteAccount() {
   const modal = document.getElementById('deleteAccountModal');
@@ -20544,6 +20619,114 @@ const HunterSystem = (() => {
   return { render, bump, setGender, renderLife, setBirthDate, setLifeExpectancy, editLife };
 })();
 window.HunterSystem = HunterSystem;
+
+const ChallengeTracker = (() => {
+  const KEY = 'cos_challenges_v1';
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return []; }
+  }
+  function save(arr) { localStorage.setItem(KEY, JSON.stringify(arr)); }
+
+  function dateStr(d) { return d.toISOString().slice(0, 10); }
+
+  function create(name, days) {
+    if (!days || days < 1) return;
+    const arr = load();
+    arr.push({ id: 'ch_' + Date.now(), name: name || (days + '-Day Challenge'), totalDays: days, startDate: dateStr(new Date()), log: {} });
+    save(arr);
+    render();
+    if (typeof showToast === 'function') showToast('🔥 Challenge started: ' + (name || (days + '-Day Challenge')));
+  }
+
+  function createCustom() {
+    const name = prompt('Challenge name (e.g. No Sugar, Wake at 5am):');
+    if (name === null) return;
+    const daysRaw = prompt('How many days?', '30');
+    const days = parseInt(daysRaw, 10);
+    if (!days || days < 1) { if (typeof showToast === 'function') showToast('⚠️ Enter a valid number of days'); return; }
+    create(name || (days + '-Day Challenge'), days);
+  }
+
+  function remove(id) {
+    if (!confirm('Delete this challenge? This cannot be undone.')) return;
+    save(load().filter(c => c.id !== id));
+    render();
+  }
+
+  function toggleDay(id, ds) {
+    const today = dateStr(new Date());
+    if (ds > today) return; // can't mark future days
+    const arr = load();
+    const c = arr.find(x => x.id === id);
+    if (!c) return;
+    if (c.log[ds]) delete c.log[ds]; else c.log[ds] = true;
+    save(arr);
+    render();
+  }
+
+  function dayList(c) {
+    const days = [];
+    const start = new Date(c.startDate + 'T00:00:00');
+    for (let i = 0; i < c.totalDays; i++) {
+      const d = new Date(start); d.setDate(start.getDate() + i);
+      days.push(dateStr(d));
+    }
+    return days;
+  }
+
+  function stats(c) {
+    const today = dateStr(new Date());
+    const days = dayList(c);
+    let completed = 0, missed = 0, remaining = 0;
+    days.forEach(ds => {
+      if (c.log[ds]) completed++;
+      else if (ds < today) missed++;
+      else remaining++;
+    });
+    let streak = 0;
+    for (let i = days.length - 1; i >= 0; i--) {
+      const ds = days[i];
+      if (ds > today) continue;
+      if (c.log[ds]) streak++; else break;
+    }
+    return { completed, missed, remaining, total: days.length, streak, pct: (completed / days.length) * 100 };
+  }
+
+  function render() {
+    const el = document.getElementById('challengesList');
+    if (!el) return;
+    const arr = load();
+    if (!arr.length) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--text3)">No active challenges yet — start one below.</div>';
+      return;
+    }
+    const today = dateStr(new Date());
+    el.innerHTML = arr.map(c => {
+      const s = stats(c);
+      const days = dayList(c);
+      const cells = days.map(ds => {
+        let bg = 'var(--bg)', symbol = '', border = '1px solid var(--border)', cursor = 'default';
+        if (c.log[ds]) { bg = 'linear-gradient(135deg,#22c55e,#16a34a)'; symbol = '\u2713'; cursor = 'pointer'; }
+        else if (ds < today) { bg = 'linear-gradient(135deg,#f43f5e,#e11d48)'; symbol = '\u2717'; cursor = 'pointer'; }
+        else if (ds === today) { border = '2px solid #7c3aed'; cursor = 'pointer'; }
+        return '<div onclick="ChallengeTracker.toggleDay(\'' + c.id + '\',\'' + ds + '\')" title="' + ds + '" style="width:22px;height:22px;border-radius:5px;background:' + bg + ';border:' + border + ';display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;cursor:' + cursor + ';flex-shrink:0">' + symbol + '</div>';
+      }).join('');
+      return '<div style="background:var(--bg3);margin-bottom:12px;padding:12px;border-radius:12px;border:1px solid var(--border)">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+        '<b style="font-size:14px">' + c.name + '</b>' +
+        '<button class="btn btn-secondary btn-sm" onclick="ChallengeTracker.remove(\'' + c.id + '\')">\uD83D\uDDD1</button>' +
+        '</div>' +
+        '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">\u2705 ' + s.completed + ' done &middot; \u274C ' + s.missed + ' missed &middot; \u23F3 ' + s.remaining + ' left &middot; ' + s.pct.toFixed(0) + '% &middot; \uD83D\uDD25 ' + s.streak + ' day streak</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:4px">' + cells + '</div>' +
+        '</div>';
+    }).join('');
+  }
+
+  return { create, createCustom, remove, toggleDay, render, load, dayList, stats };
+})();
+window.ChallengeTracker = ChallengeTracker;
+
 
 
 // ── Optional: run once on load to patch alarms even if checkAlarms
