@@ -15221,6 +15221,16 @@ function updateCILPulse() {
 }
 
 // ── HIVE STATUS BAR — shown on every tab ────────────────────────────────────
+// showHiveAlerts() — the Hive Status Bar's alert badge previously only
+// showed a count ("⚠️ 2 insights"); the actual generated messages were
+// computed in cosBrainSync() but never surfaced anywhere. This makes them
+// readable on tap.
+function showHiveAlerts() {
+  const alerts = COS_BRAIN.alerts || [];
+  if (!alerts.length) return;
+  alert('🧠 Hive Mind Insights\n\n' + alerts.map(a => '• ' + a.msg).join('\n\n'));
+}
+
 function renderHiveStatusBar(tabId) {
   // Remove old bar if present
   const old = document.getElementById('hiveStatusBar');
@@ -15244,8 +15254,11 @@ function renderHiveStatusBar(tabId) {
   if (b.games?.recentScore) chips.push({ icon: '🎮', label: b.games.gameName, color: '#ec4899' });
   if (status.hasNews) chips.push({ icon: '🌍', label: 'live news', color: '#6366f1' });
   if (status.hasInsights) chips.push({ icon: '⚡', label: 'AI insights', color: '#f97316' });
+  if (b.hunter) chips.push({ icon: '⚔️', label: 'Lv' + b.hunter.level, color: '#f43f5e' });
+  if (b.lifeTracker) chips.push({ icon: '⏳', label: b.lifeTracker.lifePct + '% life', color: '#facc15' });
+  if (b.challenges?.length) chips.push({ icon: '🔥', label: b.challenges.length + (b.challenges.length===1?' streak':' streaks'), color: '#fb923c' });
 
-  if (!chips.length) return; // nothing to show yet
+  if (!chips.length && !b.alerts?.length) return; // nothing to show yet
 
   const bar = document.createElement('div');
   bar.id = 'hiveStatusBar';
@@ -15257,7 +15270,8 @@ function renderHiveStatusBar(tabId) {
     '</div>' +
     chips.slice(0, 7).map(ch =>
       '<span style="font-size:9px;background:' + ch.color + '18;color:' + ch.color + ';padding:2px 6px;border-radius:6px;font-weight:700;white-space:nowrap">' + ch.icon + ' ' + ch.label + '</span>'
-    ).join('');
+    ).join('') +
+    (b.alerts?.length ? '<span onclick="showHiveAlerts()" style="cursor:pointer;font-size:9px;background:#ef444422;color:#ef4444;padding:2px 6px;border-radius:6px;font-weight:700;white-space:nowrap">⚠️ ' + b.alerts.length + ' insight' + (b.alerts.length===1?'':'s') + ' — tap</span>' : '');
 
   // Insert after section-header or as first child
   const header = panel.querySelector('.section-header');
@@ -20751,5 +20765,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 </script>
 
+<!-- Cloudflare Web Analytics -->
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "0e68eb8bf4724fa499f171e8f5f89de6"}'></script>
+<!-- End Cloudflare Web Analytics -->
 </body>
 </html>
