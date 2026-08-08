@@ -5973,6 +5973,18 @@ html,body{height:100%;font-family:"DM Sans",sans-serif;background:var(--bg);colo
     </div>
 
     <div class="onboard-step" id="oStep5">
+      <span class="onboard-icon">🔭</span>
+      <div class="onboard-title">Future Me, Oracle & Vault</div>
+      <div class="onboard-text">Talk to a running model of who your patterns say you're becoming (Future Me), get deep reflective insight when you need more than a quick answer (Oracle), and revisit your preserved peak states and behavior patterns (Vault).</div>
+    </div>
+
+    <div class="onboard-step" id="oStep6">
+      <span class="onboard-icon">⚔️</span>
+      <div class="onboard-title">Hunter System & Challenges</div>
+      <div class="onboard-text">Level up real stats by logging daily quests — push-ups, burpees, mobility work — and unlock a rank and class. Start a 30/75/100-day streak challenge in Calendar, and let Agent Coach remind you by voice for workouts, study, and hydration.</div>
+    </div>
+
+    <div class="onboard-step" id="oStep7">
       <span class="onboard-icon">✨</span>
       <div class="onboard-title">You're Ready!</div>
       <div class="onboard-text">Start by filling your first Daily Log to establish your baseline. The more you log, the smarter your AI becomes. You can always revisit this guide with the ❓ button.</div>
@@ -12277,13 +12289,13 @@ function showOnboarding(){document.getElementById('onboardOverlay').style.displa
 function closeOnboarding(){document.getElementById('onboardOverlay').style.display='none';}
 function gotoOStep(s){
   document.querySelectorAll('.onboard-step').forEach((el,i)=>el.classList.toggle('active',i===s));
-  document.getElementById('onboardDots').innerHTML=Array.from({length:6},(_,i)=>`<div class="odot${i===s?' active':''}"></div>`).join('');
+  document.getElementById('onboardDots').innerHTML=Array.from({length:8},(_,i)=>`<div class="odot${i===s?' active':''}"></div>`).join('');
   document.getElementById('oBtnPrev').style.display=s>0?'':'none';
-  document.getElementById('oBtnNext').textContent=s===5?'🚀 Let\'s Go!':'Next →';
+  document.getElementById('oBtnNext').textContent=s===7?'🚀 Let\'s Go!':'Next →';
 }
 function onboardNav(dir){
-  if(oStep>=5&&dir>0){closeOnboarding();return;}
-  oStep=Math.max(0,Math.min(5,oStep+dir));gotoOStep(oStep);
+  if(oStep>=7&&dir>0){closeOnboarding();return;}
+  oStep=Math.max(0,Math.min(7,oStep+dir));gotoOStep(oStep);
 }
 
 // ══════════════════════════════════════════════════════════════
