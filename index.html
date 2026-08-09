@@ -3286,6 +3286,13 @@ html,body{height:100%;font-family:"DM Sans",sans-serif;background:var(--bg);colo
   </div>
   <div class="section-header">📊 Analysis Dashboard</div>
 
+  <!-- ── WHERE YOU SPEND TIME ── -->
+  <div class="card">
+    <div class="card-title"><span class="emoji">📱</span> Where You Spend Time</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Time spent per tab on this device, tracked automatically as you use the app.</div>
+    <div id="tabDwellReport"></div>
+  </div>
+
   <!-- ── WEEKLY MIND REPORT CARD ── -->
   <div class="card" id="weeklyMindReportCard">
     <div class="card-title"><span class="emoji">🌟</span> Weekly Mind Report</div>
@@ -6881,6 +6888,7 @@ function switchTab(tabId) {
       calculateDailyScore();
       const dateEl=document.getElementById('reportDate');
       if(dateEl) dateEl.innerText=new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'});
+      if(typeof renderTabDwellReport==='function') renderTabDwellReport();
     },100);
   }
   if(id==='hunter'){
@@ -19433,6 +19441,17 @@ const PassiveMind = {
     if (!d.tabDwell) d.tabDwell = {};
     d.tabDwell[tabName] = (d.tabDwell[tabName] || 0) + durationSec;
     this.save(d);
+    // Best-effort Firestore sync (per-user, private) so this survives a
+    // localStorage clear and can eventually feed real cross-device stats.
+    try {
+      const uid = (typeof getCurrentUser === 'function') ? getCurrentUser() : null;
+      if (uid && typeof db !== 'undefined') {
+        db.collection('users').doc(uid).collection('tabDwell').doc(tabName).set({
+          totalSeconds: firebase.firestore.FieldValue.increment(durationSec),
+          lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true }).catch(() => {});
+      }
+    } catch (e) {}
   },
 
   recordAIQuery(queryText) {
@@ -19492,6 +19511,37 @@ const PassiveMind = {
     return parts.length ? '\n[PASSIVE]\n' + parts.join('\n') + '\n[/PASSIVE]' : '';
   }
 };
+
+// Renders PassiveMind's already-collected tabDwell data — this was being
+// tracked since v9 but never shown anywhere in the UI. Per-device only
+// (localStorage), not an aggregate across all your users.
+function renderTabDwellReport() {
+  const el = document.getElementById('tabDwellReport');
+  if (!el) return;
+  const d = PassiveMind.get();
+  const dwell = d.tabDwell || {};
+  const entries = Object.entries(dwell).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--text3)">Not enough usage yet — spend a bit more time in the app and this fills in.</div>';
+    return;
+  }
+  const labelFor = (id) => {
+    const nav = (typeof NAV_ITEMS !== 'undefined') ? NAV_ITEMS.find(n => n.id === id) : null;
+    const name = nav ? (t(nav.key) || nav.key) : id;
+    return (nav ? nav.icon + ' ' : '') + name;
+  };
+  const fmt = (sec) => sec >= 3600 ? (sec / 3600).toFixed(1) + 'h' : sec >= 60 ? Math.round(sec / 60) + 'm' : sec + 's';
+  const total = entries.reduce((s, [, v]) => s + v, 0);
+  const max = entries[0][1];
+  el.innerHTML = entries.slice(0, 10).map(([id, sec]) => {
+    const pct = total ? ((sec / total) * 100).toFixed(0) : 0;
+    const barPct = max ? (sec / max) * 100 : 0;
+    return '<div style="margin-bottom:10px">' +
+      '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">' +
+      '<span>' + labelFor(id) + '</span><span style="color:var(--text3)">' + fmt(sec) + ' &middot; ' + pct + '%</span></div>' +
+      '<div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:' + barPct + '%"></div></div></div>';
+  }).join('');
+}
 
 // Init PassiveMind on load
 PassiveMind.recordSession();
