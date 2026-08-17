@@ -110,8 +110,10 @@ window._googleRedirectPromise = auth.getRedirectResult().finally(function() {
 
 // ─── API KEY ────────────────────────────────────────────────
 // Keys assembled at runtime (obfuscated)
-const _k=((a,b,c,d)=>a+b+c+d)(atob('QUl6YVN5Q25hcw=='),atob('MDhtR3Y3aTlJQQ=='),atob('MkY5Sk84LTZrNQ=='),atob('TGFYOEw0bnEw'));
-const GEMINI_KEY=_k;
+// SECURITY PATCH v10.4:
+// Never ship a provider secret in client JavaScript, even obfuscated/base64 encoded.
+// Gemini must be called through a server-side proxy/Worker or via a user-supplied key.
+const GEMINI_KEY='';
 // ─── GROQ — 100% Worker-only (key lives in Cloudflare Worker secret, never here) ───
 // All AI calls go through: https://hidden-wildflower-3301.vikramsandhu90341.workers.dev
 // No key in this file. No key in localStorage. Nothing to leak.
@@ -7293,7 +7295,7 @@ async function cosIntelligenceHook(){
     // 1. Auto-update user memory baseline from recent logs
     if(logs.length>=3){
       const recent=logs.slice(0,7);
-      const avgEnergy=(recent.reduce((s,l)=>s+(parseFloat(l.energy)||5),0)/recent.length).toFixed(1);
+      const avgEnergy=(recent.reduce((s,l)=>s+(((parseFloat(l.mentalEnergy)||5)+(parseFloat(l.physicalEnergy)||5))/2),0)/recent.length).toFixed(1);
       const avgMood=(recent.reduce((s,l)=>s+(parseFloat(l.mood)||5),0)/recent.length).toFixed(1);
       const avgFocus=(recent.reduce((s,l)=>s+(parseFloat(l.focus)||5),0)/recent.length).toFixed(1);
       const avgSleep=(recent.reduce((s,l)=>s+(parseFloat(l.sleep)||7),0)/recent.length).toFixed(1);
@@ -7325,7 +7327,8 @@ async function cosIntelligenceHook(){
     // 2. Auto-detect what helped vs hurt (feedback memory)
     // If last log has high focus+energy after activity, log it as booster
     const last=logs[0];
-    if(last && last.focus>=8 && last.energy>=7 && last.activity){
+    const _lastEnergy = last ? ((parseFloat(last.mentalEnergy)||5)+(parseFloat(last.physicalEnergy)||5))/2 : 0;
+    if(last && last.focus>=8 && _lastEnergy>=7 && last.activity){
       const fb=JSON.parse(localStorage.getItem('cos_memory_feedback')||'{}');
       fb.what_worked=fb.what_worked||[];
       const act=last.activity.trim();
@@ -7490,7 +7493,7 @@ mentalEnergy=${avg('mentalEnergy')}, score=${avg('score')}`;
     dbg('info', '✅ Gemini insight parsed OK. stateTrend=' + parsed.stateTrend + ' confidence=' + parsed.confidence);
     return parsed;
   }catch(e){
-    dbg('error', 'JSON parse failed. Raw text was:', rawText);
+    dbg('error', 'JSON parse failed. Raw text was:', clean);
     return null;
   }
 }
@@ -7964,8 +7967,9 @@ async function callAI(model,messages,userContext){
   const systemMsg=model.persona+'\n\nYou are an advanced AI consciousness coach in COS. You have deep knowledge of neuroscience, psychology, meditation, peak performance, sleep, dreams, nutrition, and human potential.'+userContext;
   if(provider==='google'){
     const gKey=GEMINI_KEY||apiKey;
+    if(!gKey) throw new Error('Gemini is temporarily disabled until its API call is routed through the secure Worker. Add your own Gemini key in Settings to use it locally.');
     const _gCall=async()=>{
-      const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model.apiModel}:generateContent?key=${gKey}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:messages.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]})),systemInstruction:{parts:[{text:systemMsg}]},generationConfig:{maxOutputTokens:900,temperature:0.85}})});
+      const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model.apiModel}:generateContent?key=${encodeURIComponent(gKey)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:messages.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]})),systemInstruction:{parts:[{text:systemMsg}]},generationConfig:{maxOutputTokens:900,temperature:0.85}})});
       return r.json();
     };
     let data=await _gCall();
@@ -11702,67 +11706,18 @@ function enableTopbarSwipe(){
 // ═══════════════════════════════════════════════════════════
 
 // ─── PHONE AUTH ───────────────────────────────────────────
-let phoneOtpCode='';
-function sendPhoneOTP(){
-  const country=document.getElementById('phoneCountry').value;
-  const num=document.getElementById('phoneNumber').value.trim();
-  if(!num||num.length<7){showToast('Enter a valid phone number');return;}
-  phoneOtpCode=String(Math.floor(100000+Math.random()*900000));
-  const full=country+num;
-  document.getElementById('phoneSentTo').textContent=full;
-  document.getElementById('phoneStep1').style.display='none';
-  document.getElementById('phoneStep2').style.display='';
-  // Clear OTP boxes
-  document.querySelectorAll('#otpBoxes input').forEach(i=>i.value='');
-  document.querySelectorAll('#otpBoxes input')[0].focus();
-  showToast('📲 Code sent! (Demo: '+phoneOtpCode+')');
-  // Store phone for account
-  localStorage.setItem('cos_pending_phone',full);
-}
+// SECURITY PATCH: removed the old fake/demo OTP implementation that
+// generated its own 6-digit code client-side and showed it in a toast
+// ("Demo: 123456") — that was not real authentication, it just wrote a
+// fake user object to localStorage. The real Firebase-based
+// sendPhoneOTP()/verifyPhoneOTP()/updateAccountUI() further below are
+// the only implementations now (JS "last declaration wins" meant they
+// were already the ones actually running — this just removes the dead,
+// misleading duplicate).
 function otpBoxNext(el,idx){
   if(el.value.length>=1&&idx<6){
     const boxes=document.querySelectorAll('#otpBoxes input');
     if(boxes[idx])boxes[idx].focus();
-  }
-}
-function verifyPhoneOTP(){
-  const entered=Array.from(document.querySelectorAll('#otpBoxes input')).map(i=>i.value).join('');
-  if(entered===phoneOtpCode){
-    const phone=localStorage.getItem('cos_pending_phone')||'User';
-    const user={phone,name:phone,ts:Date.now(),method:'phone'};
-    localStorage.setItem('cos_user',JSON.stringify(user));
-    document.getElementById('phoneStep1').style.display='';
-    document.getElementById('phoneStep2').style.display='none';
-    updateAccountUI();
-    showToast('✅ Signed in successfully!');
-  } else {
-    showToast('❌ Wrong code. Try again.');
-  }
-}
-function updateAccountUI(){
-  const user=JSON.parse(localStorage.getItem('cos_user')||'null');
-  const loggedOut=document.getElementById('accountLoggedOut');
-  const loggedIn=document.getElementById('accountLoggedIn');
-  const status=document.getElementById('accountStatus');
-  if(!loggedIn)return;
-  if(user){
-    if(loggedOut)loggedOut.style.display='none';
-    loggedIn.style.display='';
-    document.getElementById('accountName').textContent=user.name||user.phone||'User';
-    document.getElementById('accountPhone').textContent=(user.method==='phone'?'📱 ':'🔵 ')+(user.phone||user.email||'');
-    document.getElementById('accountAvatar').textContent=user.method==='phone'?'📱':user.method==='google'?'🔵':'🧠';
-    if(status)status.textContent='✅ Signed in · Data synced';
-    // Stats
-    const logs=getLogs();const dreams=getDreams();
-    if(document.getElementById('acctLogCount'))document.getElementById('acctLogCount').textContent=logs.length;
-    if(document.getElementById('acctDreamCount'))document.getElementById('acctDreamCount').textContent=dreams.length;
-    // Days = unique log dates
-    const days=new Set(logs.map(l=>l.date)).size;
-    if(document.getElementById('acctDaysCount'))document.getElementById('acctDaysCount').textContent=days;
-  } else {
-    if(loggedOut)loggedOut.style.display='';
-    loggedIn.style.display='none';
-    if(status)status.textContent='Currently in local mode · Data stays on your device';
   }
 }
 // signOut defined below (async, handles Firebase + localStorage)
@@ -12749,7 +12704,7 @@ const LEGAL_CONTENT={
 <li>Session behavior for passive tracking features</li>
 </ul>
 <h3>AI Chat Data</h3>
-<p>When you use AI chat features, your messages are sent to AI APIs (Anthropic Claude). These are processed per their respective privacy policies. Do not enter sensitive personal data in AI chats.</p>
+<p>When you use AI features, relevant messages/context may be sent to the configured AI provider (including the COS Cloudflare Worker/Groq or an optional provider key you supply). Processing is governed by that provider's privacy terms. Do not enter highly sensitive personal data into AI prompts.</p>
 <h3>No Selling of Data</h3>
 <p>We do not sell, trade, or rent your personal data to third parties.</p>
 <h3>Data Deletion</h3>
@@ -12784,7 +12739,7 @@ const LEGAL_CONTENT={
     content:`<h3>General Legal Notice</h3>
 <p>COS is an independent application. It is not affiliated with, endorsed by, or connected to any government body, medical institution, educational board, or financial regulator.</p>
 <h3>Third-Party Services</h3>
-<p>This app may integrate with third-party AI services (Anthropic Claude API) and font services (Google Fonts). Use of these services is subject to their respective terms and privacy policies.</p>
+<p>This app integrates with third-party services including Firebase, the COS Cloudflare Worker/AI provider, optional AI APIs, Google Fonts, and selected public data APIs. Use of these services is subject to their respective terms and privacy policies.</p>
 <h3>Jurisdiction</h3>
 <p>Any disputes arising from the use of this app shall be governed by applicable laws. Users are responsible for ensuring their use of this app complies with laws in their jurisdiction.</p>
 <h3>Changes</h3>
@@ -16672,7 +16627,7 @@ async function runAI(inputSelector, outputId, systemPrompt) {
     const answer = await askAI(prompt, systemPrompt);
     if (outEl) outEl.innerHTML =
       `<div style="background:var(--bg2);border-radius:12px;padding:12px;border:1px solid var(--border);
-        font-size:13px;color:var(--text);line-height:1.6;white-space:pre-wrap">${answer}</div>`;
+        font-size:13px;color:var(--text);line-height:1.6;white-space:pre-wrap">${escHtml(answer)}</div>`;
     showToast('✅ AI response ready');
   } catch(e) {
     if (outEl) outEl.innerHTML = `<div style="color:var(--danger);font-size:12px;padding:8px">❌ ${e.message}</div>`;
@@ -16789,7 +16744,8 @@ setTimeout(checkWorkerHealth, 2500);
 // ═══════════════════════════════════════════════════════════════
 function logBehavior(tabId, action) {
   try {
-    const uid = (typeof getCurrentUser === 'function') ? getCurrentUser() : null;
+    const _cu = (typeof getCurrentUser === 'function') ? getCurrentUser() : null;
+    const uid = _cu?.id || null;
     const entry = {
       tab: tabId,
       action: action, // 'open' | 'log_saved' | 'dream_saved' | 'ai_chat' | 'audio_played'
@@ -17948,12 +17904,20 @@ function devLoadPendingPro() {
 }
 
 async function devApprovePro(docId, uid) {
-  const expiry = new Date(); expiry.setMonth(expiry.getMonth() + 1);
-  const data = { active: true, expiry: expiry.toISOString(), plan: 'monthly', grantedAt: new Date().toISOString() };
-  await db.collection('pro_payments').doc(docId).update({ status: 'approved', approvedAt: new Date().toISOString() });
-  await db.collection('users').doc(uid).collection('pro').doc('status').set(data);
-  showToast('✅ Pro granted to ' + uid.slice(0,8));
-  devLoadPendingPro();
+  // SECURITY PATCH: this function used to write { active:true, status:'approved' }
+  // directly from the browser. Because it is a normal global JS function shipped
+  // to every visitor, ANY signed-in user could open devtools and call
+  // devApprovePro('anything', ownUid) themselves to grant free Pro — with no
+  // server-side check, this had nothing to do with whether the dev panel UI
+  // was visible. Client code can never be trusted to gate a privilege grant.
+  // Until this is moved to a Cloud Function / server-side webhook (see the
+  // 'Correct future architecture' section of the audit), approvals must be
+  // done by hand in the Firebase console:
+  //   Firestore → pro_payments → open the doc → verify the UTR/screenshot
+  //   yourself → edit status to "approved" → then create
+  //   users/{uid}/pro/status with { active:true, expiry, plan }.
+  showToast('⚠️ Auto-approve disabled for security. Approve this payment manually in the Firebase console (see code comment).');
+  console.warn('devApprovePro is disabled client-side. See comment above this function.');
 }
 
 function devAction(action) {
@@ -19444,7 +19408,8 @@ const PassiveMind = {
     // Best-effort Firestore sync (per-user, private) so this survives a
     // localStorage clear and can eventually feed real cross-device stats.
     try {
-      const uid = (typeof getCurrentUser === 'function') ? getCurrentUser() : null;
+      const _cu = (typeof getCurrentUser === 'function') ? getCurrentUser() : null;
+    const uid = _cu?.id || null;
       if (uid && typeof db !== 'undefined') {
         db.collection('users').doc(uid).collection('tabDwell').doc(tabName).set({
           totalSeconds: firebase.firestore.FieldValue.increment(durationSec),
