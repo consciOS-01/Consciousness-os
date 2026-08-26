@@ -15142,6 +15142,14 @@ function getHiveContextFor(feature) {
     if (b.hunter) lines.push('HUNTER SYSTEM: level ' + b.hunter.level + ', ' + b.hunter.questsDoneToday + ' quests today');
     if (b.lifeTracker) lines.push('LIFE TRACKER: ' + b.lifeTracker.lifePct + '% through estimated lifespan');
     if (b.challenges?.length) lines.push('CHALLENGES: ' + b.challenges.map(function(ch){return ch.name+' '+ch.pct+'% ('+ch.streak+'d streak)';}).join(' | '));
+    // Passive behavioral signals (tab-dwell, sleep pattern, consistency) — previously only
+    // reached AI chat via buildCOSBrainContext(); Oracle/Analysis never saw them.
+    if (typeof PassiveMind !== 'undefined' && typeof PassiveMind.deriveInsights === 'function') {
+      const pmIns = PassiveMind.deriveInsights();
+      if (pmIns.primaryFocus) lines.push('MOST-USED TAB: ' + pmIns.primaryFocus);
+      if (pmIns.sleepPattern) lines.push('SLEEP PATTERN (from app-open times): ' + pmIns.sleepPattern);
+      if (pmIns.consistency) lines.push('APP-USE CONSISTENCY (7d): ' + pmIns.consistency);
+    }
   }
   if (feature === 'world' || feature === 'geo') {
     if (b.world?.topStories?.length) lines.push('WORLD NEWS: ' + b.world.topStories.slice(0,2).join(' | '));
@@ -20396,13 +20404,13 @@ const HunterSystem = (() => {
   };
 
   const QUEST_DEFS = [
-    { id: 'pushups', stat: 'STR', name: 'Push-Ups', target: 100, unit: 'reps', step: 20 },
-    { id: 'squats', stat: 'VIT', name: 'Squats', target: 100, unit: 'reps', step: 20 },
-    { id: 'situps', stat: 'AGI', name: 'Sit-Ups', target: 100, unit: 'reps', step: 20 },
+    { id: 'pushups', stat: 'STR', name: 'Push-Ups', target: 100, unit: 'reps', step: 10 },
+    { id: 'squats', stat: 'VIT', name: 'Squats', target: 100, unit: 'reps', step: 10 },
+    { id: 'situps', stat: 'AGI', name: 'Sit-Ups', target: 100, unit: 'reps', step: 10 },
     { id: 'run', stat: 'PER', name: 'Run', target: 5, unit: 'km', step: 1 },
     { id: 'focus', stat: 'INT', name: 'Mobility / Focus', target: 60, unit: 'min', step: 10 },
-    { id: 'spotjog', stat: 'AGI', name: 'Spot Jogging', target: 100, unit: 'reps', step: 20 },
-    { id: 'hindubarpee', stat: 'VIT', name: 'Hindu Burpee', target: 100, unit: 'reps', step: 20 },
+    { id: 'spotjog', stat: 'AGI', name: 'Spot Jogging', target: 100, unit: 'reps', step: 10 },
+    { id: 'hindubarpee', stat: 'VIT', name: 'Hindu Burpee', target: 100, unit: 'reps', step: 10 },
   ];
 
   const RANKS = [
@@ -20457,6 +20465,12 @@ const HunterSystem = (() => {
     }
     saveProfile(p);
     render();
+    // Hive-mind link: if EVERY quest is now done for today, auto-tick today's
+    // box on any active 100/75/30-day Challenge — no manual double-entry needed.
+    const allDone = QUEST_DEFS.every(qd => (dayLog[qd.id] || 0) >= qd.target);
+    if (allDone && typeof ChallengeTracker !== 'undefined' && typeof ChallengeTracker.markTodayComplete === 'function') {
+      ChallengeTracker.markTodayComplete();
+    }
   }
 
   function totalLevel(stats) {
@@ -20642,12 +20656,37 @@ const HunterSystem = (() => {
     const lifePct = Math.min(100, (livedDays / lifeDays) * 100);
     const yearsLeft = Math.max(0, (lifeDays - livedDays) / 365.25);
 
+    // ── Life in Numbers (age-calculator style breakdown) ──
+    let ageY = now.getFullYear() - birth.getFullYear();
+    let ageM = now.getMonth() - birth.getMonth();
+    let ageD = now.getDate() - birth.getDate();
+    if (ageD < 0) { ageM--; ageD += new Date(now.getFullYear(), now.getMonth(), 0).getDate(); }
+    if (ageM < 0) { ageY--; ageM += 12; }
+    const totalMs = now - birth;
+    const totalDaysN = Math.floor(totalMs / msDay);
+    const totalWeeksN = Math.floor(totalDaysN / 7);
+    const totalWeeksRemDays = totalDaysN % 7;
+    const totalHoursN = Math.floor(totalMs / 3600000);
+    const totalMinutesN = Math.floor(totalMs / 60000);
+    const totalSecondsN = Math.floor(totalMs / 1000);
+    const fmt = (n) => n.toLocaleString('en-IN');
+    const numbersCard = '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:14px;font-size:13px;line-height:1.9">' +
+      '<div style="font-weight:600;margin-bottom:4px">📐 Your Life in Numbers</div>' +
+      '<div>' + ageY + ' years ' + ageM + ' months ' + ageD + ' days</div>' +
+      '<div>or ' + fmt(ageY * 12 + ageM) + ' months ' + ageD + ' days</div>' +
+      '<div>or ' + fmt(totalWeeksN) + ' weeks ' + totalWeeksRemDays + ' days</div>' +
+      '<div>or ' + fmt(totalDaysN) + ' days</div>' +
+      '<div>or ' + fmt(totalHoursN) + ' hours</div>' +
+      '<div>or ' + fmt(totalMinutesN) + ' minutes</div>' +
+      '<div>or ' + fmt(totalSecondsN) + ' seconds</div>' +
+      '</div>';
+
     const row = (label, pct, sub) => '<div style="margin-bottom:14px">' +
       '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">' +
       '<span>' + label + '</span><span style="color:var(--text3)">' + (sub ? sub + ' &middot; ' : '') + pct.toFixed(1) + '%</span></div>' +
       segmentedBar(pct) + '</div>';
 
-    wrap.innerHTML = row('This Hour', hourPct, now.getMinutes() + '/60 min') +
+    wrap.innerHTML = numbersCard + row('This Hour', hourPct, now.getMinutes() + '/60 min') +
       row('Today', dayPct, now.getHours() + '/24 hr') +
       row('This Week', weekPct, dow + '/7 days') +
       row('This Month', monthPct, now.getDate() + '/' + daysInMonth + ' days') +
@@ -20704,6 +20743,24 @@ const ChallengeTracker = (() => {
     if (c.log[ds]) delete c.log[ds]; else c.log[ds] = true;
     save(arr);
     render();
+  }
+
+  // Called by HunterSystem when every daily quest is complete — marks
+  // today done on every active challenge (only sets true, never toggles
+  // off, so it can't undo a manual entry or un-tick anything).
+  function markTodayComplete() {
+    const today = dateStr(new Date());
+    const arr = load();
+    let changed = false;
+    arr.forEach(c => {
+      const days = dayList(c);
+      if (days.includes(today) && !c.log[today]) { c.log[today] = true; changed = true; }
+    });
+    if (changed) {
+      save(arr);
+      render();
+      if (typeof showToast === 'function') showToast('🎯 All quests done — challenge day auto-ticked!');
+    }
   }
 
   function dayList(c) {
@@ -20764,7 +20821,7 @@ const ChallengeTracker = (() => {
     }).join('');
   }
 
-  return { create, createCustom, remove, toggleDay, render, load, dayList, stats };
+  return { create, createCustom, remove, toggleDay, render, load, dayList, stats, markTodayComplete };
 })();
 window.ChallengeTracker = ChallengeTracker;
 
