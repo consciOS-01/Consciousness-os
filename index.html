@@ -5249,6 +5249,49 @@ html,body{height:100%;font-family:"DM Sans",sans-serif;background:var(--bg);colo
   </div>
 </div>
 
+<!-- ── FIRE / RUNWAY (manual data, computed locally — no bank connection) ── -->
+<div class="card" style="border:1px solid rgba(34,197,94,.3)">
+  <div class="card-title" style="font-size:15px"><span class="emoji">🔥</span> FIRE Forecast & Runway</div>
+  <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Based on the income/expenses/assets you entered above. Assumes a 10% avg annual return and the 4% safe-withdrawal rule — a planning estimate, not financial advice.</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div style="background:var(--bg3);border-radius:10px;padding:10px;text-align:center">
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;font-weight:700">FIRE Number</div>
+      <div id="wFireNumber" style="font-size:16px;font-weight:800;color:#f59e0b;margin-top:2px">₹0</div>
+      <div style="font-size:9px;color:var(--text3)">25× annual expenses</div>
+    </div>
+    <div style="background:var(--bg3);border-radius:10px;padding:10px;text-align:center">
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;font-weight:700">Years to FIRE</div>
+      <div id="wYearsToFire" style="font-size:16px;font-weight:800;color:#a78bfa;margin-top:2px">—</div>
+      <div style="font-size:9px;color:var(--text3)">at current savings rate</div>
+    </div>
+    <div style="background:var(--bg3);border-radius:10px;padding:10px;text-align:center;grid-column:1/-1">
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;font-weight:700">Runway (if expenses &gt; income)</div>
+      <div id="wRunway" style="font-size:16px;font-weight:800;color:#38bdf8;margin-top:2px">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── CREDIT CARD ADVISOR (your own cards, entered manually — no card linking) ── -->
+<div class="card" style="border:1px solid rgba(56,189,248,.3)">
+  <div class="card-title" style="font-size:15px"><span class="emoji">💳</span> Credit Card Advisor</div>
+  <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Add the cards you already own and what each is best for. Then pick a spend category to see which of YOUR cards to use — nothing is linked, this only compares cards you type in yourself.</div>
+  <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+    <input type="text" id="ccName" class="form-input" placeholder="Card name (e.g. HDFC Millennia)" style="flex:1;min-width:140px">
+    <input type="text" id="ccTags" class="form-input" placeholder="Best for (e.g. Dining, Fuel, Online)" style="flex:1;min-width:140px">
+  </div>
+  <button class="btn btn-secondary btn-sm btn-block" onclick="addCCAdvisorCard()" style="margin-bottom:10px">+ Add Card</button>
+  <div id="ccCardList" style="margin-bottom:10px"></div>
+  <div style="display:flex;gap:6px;margin-bottom:8px">
+    <select id="ccSpendCategory" class="form-select" style="flex:1">
+      <option value="">Select spend category…</option>
+      <option>Groceries</option><option>Dining</option><option>Fuel</option>
+      <option>Travel</option><option>Online</option><option>Utilities</option><option>Other</option>
+    </select>
+    <button class="btn btn-primary btn-sm" onclick="recommendCCAdvisor()">Recommend</button>
+  </div>
+  <div id="ccRecommendation" style="font-size:13px;color:var(--text);display:none;background:var(--bg3);border-radius:8px;padding:10px"></div>
+</div>
+
 <!-- ── AI WEALTH ADVISOR ── -->
 <div class="card" style="border:2px solid rgba(250,204,21,.3);background:linear-gradient(135deg,rgba(250,204,21,.04),rgba(124,58,237,.06))">
   <div class="card-title" style="font-size:16px"><span class="emoji">🧠</span> AI Wealth Advisor — Robert Kiyosaki + Buffett + BlackRock Mode</div>
@@ -13480,6 +13523,7 @@ function initWealthOS(){
   computeWealthScore();
   cycleWealthWisdom();
   showBillionaireModel('rockefeller', document.querySelector('#tab-wealth .wave-btn'));
+  renderCCAdvisorList();
 }
 
 function computeWealthScore(){
@@ -13520,6 +13564,103 @@ function computeWealthScore(){
   if(el('wRatRace')) {
     el('wRatRace').textContent = escaped ? '🏆 RAT RACE ESCAPED!' : nearEscape ? '🔥 Halfway to Freedom' : '🐀 In Rat Race';
     el('wRatRace').style.color = escaped ? '#4ade80' : nearEscape ? '#fbbf24' : '#f87171';
+  }
+
+  computeFireRunway(totalExpenses, cashflow, netWorth, fmt, el);
+}
+
+// FIRE number (25x annual expenses, 4% rule) + years-to-FIRE (compound growth
+// of net worth at 10%/yr avg return + monthly savings) + runway (months of
+// net worth left if spending exceeds income). Pure math on the numbers you
+// typed in above — no bank/investment account is connected for this.
+function computeFireRunway(totalExpenses, cashflow, netWorth, fmt, el){
+  const annualExpenses = totalExpenses * 12;
+  const fireNumber = annualExpenses * 25;
+  if (el('wFireNumber')) el('wFireNumber').textContent = fmt(fireNumber);
+
+  const yEl = el('wYearsToFire');
+  if (yEl) {
+    if (fireNumber <= 0) {
+      yEl.textContent = '—';
+    } else if (netWorth >= fireNumber) {
+      yEl.textContent = '🎉 Reached!';
+    } else if (cashflow <= 0) {
+      yEl.textContent = 'N/A';
+    } else {
+      // Simulate month by month: 10%/yr ≈ 0.83%/month growth + monthly cashflow added
+      let nw = netWorth, months = 0;
+      const monthlyRate = 0.10 / 12;
+      while (nw < fireNumber && months < 1200) { // cap at 100 years
+        nw = nw * (1 + monthlyRate) + cashflow;
+        months++;
+      }
+      yEl.textContent = months >= 1200 ? '100+ yrs' : (months / 12).toFixed(1) + ' yrs';
+    }
+  }
+
+  const rEl = el('wRunway');
+  if (rEl) {
+    if (cashflow >= 0) {
+      rEl.textContent = '✅ Cashflow positive';
+      rEl.style.color = '#4ade80';
+    } else if (netWorth <= 0) {
+      rEl.textContent = '⚠️ No buffer left';
+      rEl.style.color = '#f87171';
+    } else {
+      const months = netWorth / Math.abs(cashflow);
+      rEl.textContent = months.toFixed(1) + ' months at current burn rate';
+      rEl.style.color = months < 6 ? '#f87171' : months < 12 ? '#fbbf24' : '#38bdf8';
+    }
+  }
+}
+
+// ── Credit Card Advisor: manual card list, matched against a chosen spend
+// category. No card is ever linked — this only compares cards you typed in.
+function loadCCAdvisorCards(){
+  return JSON.parse(localStorage.getItem('cos_cc_advisor') || '[]');
+}
+function saveCCAdvisorCards(cards){
+  localStorage.setItem('cos_cc_advisor', JSON.stringify(cards));
+}
+function renderCCAdvisorList(){
+  const cards = loadCCAdvisorCards();
+  const el = document.getElementById('ccCardList');
+  if (!el) return;
+  if (!cards.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text3)">No cards added yet.</div>'; return; }
+  el.innerHTML = cards.map((c,i) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg3);border-radius:8px;padding:8px 10px;margin-bottom:6px">
+      <div><strong style="font-size:13px">${escHtml(c.name)}</strong><div style="font-size:11px;color:var(--text3)">${escHtml(c.tags)}</div></div>
+      <button class="btn btn-sm" onclick="removeCCAdvisorCard(${i})" style="background:transparent;color:#f87171">✕</button>
+    </div>`).join('');
+}
+function addCCAdvisorCard(){
+  const name = document.getElementById('ccName').value.trim();
+  const tags = document.getElementById('ccTags').value.trim();
+  if (!name || !tags) { showToast('Card name aur "best for" dono bharo'); return; }
+  const cards = loadCCAdvisorCards();
+  cards.push({ name, tags });
+  saveCCAdvisorCards(cards);
+  document.getElementById('ccName').value = '';
+  document.getElementById('ccTags').value = '';
+  renderCCAdvisorList();
+}
+function removeCCAdvisorCard(i){
+  const cards = loadCCAdvisorCards();
+  cards.splice(i,1);
+  saveCCAdvisorCards(cards);
+  renderCCAdvisorList();
+}
+function recommendCCAdvisor(){
+  const cat = document.getElementById('ccSpendCategory').value;
+  const out = document.getElementById('ccRecommendation');
+  if (!cat) { showToast('Pehle spend category select karo'); return; }
+  const cards = loadCCAdvisorCards();
+  const matches = cards.filter(c => c.tags.toLowerCase().includes(cat.toLowerCase()));
+  out.style.display = 'block';
+  if (matches.length) {
+    out.innerHTML = `💳 <strong>${escHtml(cat)}</strong> ke liye use karo: ` + matches.map(m => `<strong>${escHtml(m.name)}</strong>`).join(', ');
+  } else {
+    out.innerHTML = `Tumhare saved cards mein se koi bhi "${escHtml(cat)}" ke liye tagged nahi hai. Apna koi card add karo jo isko cover karta ho, ya apni existing cards mein se sabse general-purpose wala use karo.`;
   }
 }
 
