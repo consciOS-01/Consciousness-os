@@ -9698,6 +9698,11 @@ const GAMES_LIST=[
    howTo:'A grid of shapes/symbols is shown. One does not belong. Identify it as fast as possible. The patterns can be: color, shape, rotation, count, or a combination. This trains meta-awareness — the ability to notice what is different when your brain wants to see sameness. A key consciousness skill.'},
 ];
 let activeGame=null;
+// Game timers are registered so leaving a game (or opening another) stops them — previously a
+// 60s game kept ticking after '← Back' and threw an error every second on missing elements.
+const _gameTimers=[];
+function gameInterval(fn,ms){const id=setInterval(fn,ms);_gameTimers.push(id);return id;}
+function clearGameTimers(){while(_gameTimers.length)clearInterval(_gameTimers.pop());}
 function showGameGuide(id){
   const g=GAMES_LIST.find(x=>x.id===id);if(!g)return;
   openModal(g.emoji+' '+g.name,`
@@ -9713,6 +9718,7 @@ function showGameGuide(id){
 function buildGamesGrid(){
   const grid=document.getElementById('gamesGrid');if(!grid)return;
   const categories=[
+    {key:'math',label:'➗ Mental Math Arena',color:'#f59e0b'},
     {key:'iq',label:'🧠 IQ & Fluid Intelligence',color:'var(--primary)'},
     {key:'focus',label:'🎯 Attention & Focus',color:'var(--accent)'},
     {key:'memory',label:'🧩 Working Memory',color:'var(--warning)'},
@@ -9720,6 +9726,7 @@ function buildGamesGrid(){
     {key:'conscious',label:'🧘 Consciousness & Awareness',color:'var(--pink)'},
   ];
   let html='';
+  try{if(window.MathArena)html+=MathArena.menuHeader();}catch(e){}
   categories.forEach(cat=>{
     const games=GAMES_LIST.filter(g=>g.category===cat.key);
     if(!games.length)return;
@@ -9730,7 +9737,7 @@ function buildGamesGrid(){
         <div class="g-name">${g.name}</div>
         <div class="g-desc">${g.desc}</div>
         <div class="g-tag">${g.tag}</div>
-        <div style="font-size:10px;margin-top:5px;color:${g.difficulty==='Hard'?'var(--danger)':g.difficulty==='Medium'?'var(--warning)':'var(--success)'};font-weight:700">● ${g.difficulty||'Normal'} · Tap for guide</div>
+        <div style="font-size:10px;margin-top:5px;color:${g.difficulty==='Hard'?'var(--danger)':g.difficulty==='Medium'?'var(--warning)':'var(--success)'};font-weight:700">● ${g.difficulty||'Normal'} · Tap for guide</div>${(window.MathArena&&MathArena.badge)?MathArena.badge(g.id):''}
       </div>`;
     });
   });
@@ -9738,12 +9745,20 @@ function buildGamesGrid(){
   grid.innerHTML=html;
 }
 function launchGame(id){
+  try{if(window.GameSession)GameSession.start(id);}catch(e){}
+  clearGameTimers();
   document.getElementById('gamesMenu').style.display='none';
   const c=document.getElementById('gameContainer');c.innerHTML='';activeGame=id;
   const games={memory:renderMemoryGame,reaction:renderReactionGame,stroop:renderStroopGame,nback:renderNBackGame,math:renderMathGame,chess:renderChessGame,monopoly:renderMonopolyGame,go:renderGoGame,checkers:renderCheckersGame,battleship:renderBattleshipGame,sudoku:renderSudokuGame,pattern:renderPatternGame,typing:renderTypingGame,spatial:renderSpatialGame,simon:renderSimonGame,trivia:renderTriviaGame,word:renderWordGame,color:renderColorGame,estimate:renderFermiGame,sequence:renderSequenceGame,speed_read:renderSpeedReadGame,breathing:renderBreathingGame,anagram:renderAnagramGame};
+  try{Object.assign(games,window.EXTRA_GAMES||{});}catch(e){}
   if(games[id])games[id](c);
 }
-function backToGames(){document.getElementById('gamesMenu').style.display='';document.getElementById('gameContainer').innerHTML='';activeGame=null;}
+function backToGames(){
+  try{if(window.GameSession)GameSession.end();}catch(e){}
+  clearGameTimers();
+  document.getElementById('gamesMenu').style.display='';document.getElementById('gameContainer').innerHTML='';activeGame=null;
+  try{buildGamesGrid();}catch(e){}
+}
 function gameHeader(title,emoji,l1,l2){return `<div class="game-header"><button class="btn btn-secondary btn-sm" onclick="backToGames()">← Back</button><div style="flex:1;font-family:Syne,sans-serif;font-weight:800;font-size:18px">${emoji} ${title}</div></div><div class="game-score-bar"><div class="gs"><div class="gsv" id="gs1">0</div><div class="gsl">${l1}</div></div><div class="gs"><div class="gsv" id="gs2">-</div><div class="gsl">${l2}</div></div></div>`;}
 function renderMemoryGame(c){
   const emojis=['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼'];
@@ -9792,7 +9807,7 @@ function renderStroopGame(c){
     document.getElementById('stBtns').innerHTML=cn.sort(()=>Math.random()-.5).map(n=>`<button style="padding:10px;border-radius:10px;border:2px solid var(--border);background:${CL[n]};color:#fff;font-weight:700;cursor:pointer" onclick="stAns('${n}','${col}')">${n}</button>`).join('');
   }
   window.stAns=function(ans,correct){total++;if(ans===correct){score++;document.getElementById('gs1').textContent=score;showToast('✅');}else showToast('❌ '+correct);next();};
-  timer=setInterval(()=>{tl--;document.getElementById('gs2').textContent=tl;if(tl<=0){clearInterval(timer);document.getElementById('stWord').textContent='Done! '+score+'/'+total;document.getElementById('stBtns').innerHTML='';}},1000);
+  timer=gameInterval(()=>{tl--;document.getElementById('gs2').textContent=tl;if(tl<=0){clearInterval(timer);document.getElementById('stWord').textContent='Done! '+score+'/'+total;document.getElementById('stBtns').innerHTML='';}},1000);
   document.getElementById('gs2').textContent=tl;next();
 }
 function renderNBackGame(c){
@@ -9808,7 +9823,7 @@ function renderNBackGame(c){
 function renderMathGame(c){
   let score=0,cur=0,a,b,op,ans,tl=90,timer;const ops=['+','-','×'];
   c.innerHTML=gameHeader('Math Blitz','➕','Score','Time')+`<div style="text-align:center"><div id="mathP" style="font-size:40px;font-weight:800;font-family:Syne,sans-serif;color:var(--primary);margin-bottom:16px"></div><input type="number" id="mathI" class="form-input" placeholder="?" style="text-align:center;font-size:20px;max-width:160px;margin:0 auto 12px;display:block" onkeydown="if(event.key==='Enter')chkM()"><button class="btn btn-primary" onclick="chkM()">Submit</button></div>`;
-  timer=setInterval(()=>{tl--;document.getElementById('gs2').textContent=tl;if(tl<=0){clearInterval(timer);showToast('Time! '+score);}},1000);
+  timer=gameInterval(()=>{tl--;document.getElementById('gs2').textContent=tl;if(tl<=0){clearInterval(timer);showToast('Time! '+score);}},1000);
   function nxt(){op=ops[Math.floor(Math.random()*3)];a=Math.floor(Math.random()*20)+1;b=Math.floor(Math.random()*20)+1;ans=op==='+'?a+b:op==='-'?a-b:a*b;document.getElementById('mathP').textContent=`${a} ${op} ${b} = ?`;document.getElementById('mathI').value='';document.getElementById('mathI').focus();}
   window.chkM=function(){const v=parseInt(document.getElementById('mathI').value);cur++;if(v===ans){score++;document.getElementById('gs1').textContent=score;showToast('✅');}else showToast('❌ '+ans);nxt();};
   document.getElementById('gs2').textContent=tl;nxt();
@@ -9816,7 +9831,7 @@ function renderMathGame(c){
 function renderWordGame(c){
   let score=0,tl=60,timer,chain=[],last='';
   c.innerHTML=gameHeader('Word Chain','💬','Words','Time')+`<div style="text-align:center"><div style="font-size:13px;color:var(--text2);margin-bottom:8px">Each word must START with the LAST LETTER of the previous</div><div id="wLast" style="font-size:32px;font-weight:800;color:var(--primary);margin-bottom:10px">Any word to start</div><div style="display:flex;gap:8px"><input type="text" id="wI" class="form-input" placeholder="Type a word..." onkeydown="if(event.key==='Enter')chkW()"><button class="btn btn-primary" onclick="chkW()">Go</button></div><div id="wChain" style="margin-top:8px;font-size:12px;color:var(--text2);max-height:80px;overflow-y:auto"></div></div>`;
-  timer=setInterval(()=>{tl--;document.getElementById('gs2').textContent=tl;if(tl<=0){clearInterval(timer);showToast('Time! '+score+' words!');}},1000);document.getElementById('gs2').textContent=tl;
+  timer=gameInterval(()=>{tl--;document.getElementById('gs2').textContent=tl;if(tl<=0){clearInterval(timer);showToast('Time! '+score+' words!');}},1000);document.getElementById('gs2').textContent=tl;
   window.chkW=function(){const w=document.getElementById('wI').value.trim().toLowerCase();if(!w)return;if(last&&w[0]!==last){showToast('Must start with '+last.toUpperCase());return;}if(chain.includes(w)){showToast('Already used!');return;}chain.push(w);last=w[w.length-1];score++;document.getElementById('gs1').textContent=score;document.getElementById('wLast').textContent='Next: '+last.toUpperCase();document.getElementById('wChain').textContent=chain.join(' → ');document.getElementById('wI').value='';document.getElementById('wI').focus();};
 }
 function renderColorGame(c){
@@ -9851,7 +9866,7 @@ function renderPatternGame(c){
     document.getElementById('pArea').innerHTML=items.slice(0,6).map((s,i)=>`<div onclick="pAns(${i},${oi})" style="aspect-ratio:1;background:var(--bg3);border:2px solid var(--border);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:32px;cursor:pointer;color:${i===oi?'#ef4444':clr}">${s}</div>`).join('');
   }
   window.pAns=function(i,oi){const fb=document.getElementById('pFb');if(i===oi){score++;document.getElementById('gs1').textContent=score;fb.textContent='✅ Correct!';fb.style.color='var(--success)';}else{fb.textContent='❌ Wrong!';fb.style.color='var(--danger)';}setTimeout(nxt,600);};
-  timer=setInterval(()=>{tl--;document.getElementById('gs2').textContent=tl;if(tl<=0){clearInterval(timer);showToast('Time! Score: '+score);}},1000);document.getElementById('gs2').textContent=tl;nxt();
+  timer=gameInterval(()=>{tl--;document.getElementById('gs2').textContent=tl;if(tl<=0){clearInterval(timer);showToast('Time! Score: '+score);}},1000);document.getElementById('gs2').textContent=tl;nxt();
 }
 function renderTypingGame(c){
   const txts=['The quick brown fox jumps over the lazy dog near the river.','Consciousness is the greatest mystery in the universe.','Every morning is a new beginning. What we do today matters.'];
@@ -9860,7 +9875,7 @@ function renderTypingGame(c){
   function render(){document.getElementById('typD').innerHTML=txt.split('').map((ch,i)=>i<pos?`<span style="color:var(--success)">${ch}</span>`:i===pos?`<span style="background:var(--primary);color:#fff;border-radius:2px">${ch}</span>`:`<span>${ch}</span>`).join('');}
   render();
   document.getElementById('typI').addEventListener('input',function(){
-    if(!started){started=true;timer=setInterval(()=>{tl--;document.getElementById('gs2').textContent=tl+('%');const wpm=Math.round((pos/5)*(60/Math.max(1,60-tl)));document.getElementById('gs1').textContent=wpm;if(tl<=0){clearInterval(timer);this.disabled=true;}},1000);}
+    if(!started){started=true;timer=gameInterval(()=>{tl--;document.getElementById('gs2').textContent=tl+('%');const wpm=Math.round((pos/5)*(60/Math.max(1,60-tl)));document.getElementById('gs1').textContent=wpm;if(tl<=0){clearInterval(timer);this.disabled=true;}},1000);}
     const v=this.value;if(v.length>0&&v[v.length-1]===txt[pos]){pos++;}else if(v.length>0)errs++;
     const acc=pos>0?Math.round((1-errs/Math.max(1,pos+errs))*100):100;document.getElementById('gs2').textContent=acc+'%';this.value='';render();
     if(pos>=txt.length){clearInterval(timer);showToast('🎉 Complete!');}
@@ -10029,7 +10044,7 @@ function renderBreathingGame(c){
   function run(){const p=phases[phase];phTime=p.dur;const circ=document.getElementById('bCirc');circ.style.borderColor=p.color;circ.style.background=p.color+'20';
     document.getElementById('bPhase').textContent=p.name;document.getElementById('bPhase').style.color=p.color;document.getElementById('gs2').textContent=p.name;
     if(phase===0)setTimeout(()=>circ.style.transform='scale(1.4)',50);else if(phase===2)circ.style.transform='scale(0.9)';else circ.style.transform='scale(1.2)';
-    clearInterval(timer);timer=setInterval(()=>{phTime--;document.getElementById('bCnt').textContent=phTime;
+    clearInterval(timer);timer=gameInterval(()=>{phTime--;document.getElementById('bCnt').textContent=phTime;
       if(phTime<=0){clearInterval(timer);phase=(phase+1)%3;if(phase===0){cycles++;document.getElementById('gs1').textContent=cycles;if(cycles>=4){document.getElementById('bPhase').textContent='Complete 🙏';document.getElementById('bCnt').textContent='';document.getElementById('bBtn').style.display='';document.getElementById('bBtn').textContent='🔄 Again';return;}}run();}
     },1000);document.getElementById('bCnt').textContent=phTime;
   }
@@ -10238,7 +10253,7 @@ function importData(e){
   const file=e.target.files[0];if(!file)return;
   const reader=new FileReader();reader.onload=()=>{try{const data=JSON.parse(reader.result);if(data.logs)localStorage.setItem('cos_logs',JSON.stringify(data.logs));if(data.dreams)localStorage.setItem('cos_dreams',JSON.stringify(data.dreams));showToast('📥 Imported! '+data.logs?.length+' entries');renderRecentLogs();}catch(e){showToast('❌ Invalid file');}};reader.readAsText(file);
 }
-function clearAllData(){if(confirm('Clear ALL data? Cannot be undone.')){['cos_logs','cos_voice','cos_media','cos_health2','cos_reminders','cos_dreams','cos_rc_today','cos_alarms'].forEach(k=>localStorage.removeItem(k));showToast(t('cleared'));renderRecentLogs();}}
+function clearAllData(){if(confirm('Clear ALL data? Cannot be undone.')){['cos_logs','cos_voice','cos_media','cos_health2','cos_reminders','cos_dreams','cos_rc_today','cos_alarms','cos_game_history','cos_game_best','cos_math_rating','cos_math_daily','cos_math_mode','cos_m24_lvl','cos_events'].forEach(k=>localStorage.removeItem(k));showToast(t('cleared'));renderRecentLogs();}}
 
 
 // ═══════════════════════════════════════════════════════════
@@ -11398,7 +11413,7 @@ async function askAboutNews(){
 function buildClickableNews(){
   const el=document.getElementById('geoEventsList');
   if(!el)return;
-  el.innerHTML=NEWS_ARTICLES.map((a,i)=>`<div class="news-article" onclick="openNewsDetail(${i})"><div class="news-category">${a.emoji} ${a.cat}</div><div class="news-headline">${a.title}</div><div class="news-summary">${a.summary}</div><div class="news-meta"><span>📅 ${a.date}</span><span style="margin-left:auto;color:var(--primary);font-weight:700">Read full story →</span></div><div class="news-impact">Market impact: ${a.impact}</div></div>`).join('');
+  el.innerHTML='<div style="font-size:11px;color:var(--warning);font-weight:700;margin:8px 0">📌 Static briefings bundled with the app — not live news. Dates and figures may be outdated.</div>'+NEWS_ARTICLES.map((a,i)=>`<div class="news-article" onclick="openNewsDetail(${i})"><div class="news-category">${a.emoji} ${a.cat}</div><div class="news-headline">${a.title}</div><div class="news-summary">${a.summary}</div><div class="news-meta"><span>📅 ${a.date}</span><span style="margin-left:auto;color:var(--primary);font-weight:700">Read full story →</span></div><div class="news-impact">Market impact: ${a.impact}</div></div>`).join('');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -15103,7 +15118,21 @@ function cosBrainSync() {
     const gameHistory = JSON.parse(localStorage.getItem('cos_game_history') || '[]');
     if (gameHistory.length) {
       const last = gameHistory[gameHistory.length - 1];
-      COS_BRAIN.games = { recentScore: last.score, gameName: last.game || last.name || 'Game', totalSessions: gameHistory.length };
+      const _dk = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      const _todayK = _dk(new Date());
+      const _accs = gameHistory.slice(-20).map(g => g.acc).filter(a => typeof a === 'number');
+      let _rating = null, _streak = 0;
+      try {
+        const _r = JSON.parse(localStorage.getItem('cos_math_rating') || 'null'); if (typeof _r === 'number') _rating = _r;
+        const _dd = JSON.parse(localStorage.getItem('cos_math_daily') || 'null');
+        if (_dd && _dd.last) { const _y = new Date(); _y.setDate(_y.getDate() - 1); if (_dd.last === _todayK || _dd.last === _dk(_y)) _streak = _dd.streak || 0; }
+      } catch (e) {}
+      COS_BRAIN.games = {
+        recentScore: last.score, gameName: last.name || last.game || 'Game', totalSessions: gameHistory.length,
+        playsToday: gameHistory.filter(g => g.ts && _dk(new Date(g.ts)) === _todayK).length,
+        avgAccuracy: _accs.length ? Math.round(_accs.reduce((x, y) => x + y, 0) / _accs.length) : null,
+        mathRating: _rating, dailyStreak: _streak
+      };
       HIVE_MIND.sync('games', COS_BRAIN.games);
     }
   } catch(e) {}
@@ -15229,6 +15258,7 @@ function buildCOSBrainContext() {
   if (b.hunter) ctx += `\n\n── HUNTER SYSTEM ── Level ${b.hunter.level} · ${b.hunter.questsDoneToday} quests logged today`;
   if (b.lifeTracker) ctx += `\n\n── LIFE TRACKER ── ${b.lifeTracker.lifePct}% through an estimated ${b.lifeTracker.lifeExpectancy}-year lifespan`;
   if (b.challenges?.length) ctx += `\n\n── ACTIVE CHALLENGES ── ${b.challenges.map(ch => `${ch.name}: ${ch.pct}% (${ch.streak}d streak)`).join(' | ')}`;
+  if (b.games?.totalSessions) ctx += `\n\n── BRAIN TRAINING ── ${b.games.totalSessions} games logged · last: ${b.games.gameName}${b.games.recentScore != null ? ' (score ' + b.games.recentScore + ')' : ''}${b.games.playsToday ? ' · ' + b.games.playsToday + ' today' : ''}${b.games.mathRating ? ' · math-duel rating ' + b.games.mathRating : ''}${b.games.dailyStreak ? ' · daily math streak ' + b.games.dailyStreak + 'd' : ''}`;
   
   if (b.alerts.length) ctx += `\n\n── SYSTEM ALERTS ── ${b.alerts.map(a=>a.msg).join(' · ')}`;
   
@@ -15278,7 +15308,7 @@ function getHiveContextFor(feature) {
     if (b.dreams?.total) lines.push('DREAMS: ' + b.dreams.total + ' logged avg lucidity ' + b.dreams.avgLucidity + '/10');
     if (b.health?.sleep) lines.push('HEALTH: sleep ' + b.health.sleep + 'h exercise:' + b.health.exercise + ' stress:' + b.health.stress + '/10');
     if (b.calorie?.todayKcal) lines.push('NUTRITION: ' + b.calorie.todayKcal + 'kcal today (goal:' + b.calorie.goal + ')');
-    if (b.games?.recentScore) lines.push('BRAIN TRAINING: last game ' + b.games.gameName + ' score ' + b.games.recentScore);
+    if (b.games?.recentScore) lines.push('BRAIN TRAINING: last game ' + b.games.gameName + ' score ' + b.games.recentScore + (b.games.playsToday ? ', ' + b.games.playsToday + ' session(s) today' : '') + (b.games.mathRating ? ', math-duel rating ' + b.games.mathRating : '') + (b.games.dailyStreak ? ', daily math streak ' + b.games.dailyStreak + ' day(s)' : ''));
     if (b.lucid?.intention) lines.push('LUCID INTENTION: "' + b.lucid.intention + '"');
     if (b.hunter) lines.push('HUNTER SYSTEM: level ' + b.hunter.level + ', ' + b.hunter.questsDoneToday + ' quests today');
     if (b.lifeTracker) lines.push('LIFE TRACKER: ' + b.lifeTracker.lifePct + '% through estimated lifespan');
@@ -20600,6 +20630,7 @@ const HunterSystem = (() => {
     if (isComplete && !wasComplete) {
       p.stats[q.stat] = (p.stats[q.stat] || 1) + 1;
       if (typeof showToast === 'function') showToast('Quest complete: ' + q.name + ' (+1 ' + q.stat + ')');
+      try { window.COSEvents && COSEvents.push('hunter.quest', 'hunter', { quest: q.id, stat: q.stat }); } catch (e) {}
     }
     if (!isComplete && wasComplete) {
       p.stats[q.stat] = Math.max(1, (p.stats[q.stat] || 1) - 1);
@@ -20993,5 +21024,962 @@ document.addEventListener('DOMContentLoaded', () => {
 <!-- Cloudflare Web Analytics -->
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "0e68eb8bf4724fa499f171e8f5f89de6"}'></script>
 <!-- End Cloudflare Web Analytics -->
+
+<script id="cos-math-arena">
+/* ═══════════════════════════════════════════════════════════════
+   COS MATH ARENA v10.5  (isolated script block)
+   Matiks-style mental-math games + game history store + event log.
+   - Own <script> block: a bug here cannot break the rest of the app.
+   - Games talk to the Hive through localStorage `cos_game_history`
+     (already read by cosBrainSync) and the new `cos_events` ledger.
+   - No network, no AI calls, no innerHTML from user-typed text.
+   ═══════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+  if (window.MathArena) return;
+
+  /* ───────── tiny utils ───────── */
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const toast = (m, ms) => { try { if (typeof showToast === 'function') showToast(m, ms); } catch (e) {} };
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const pad2 = (n) => (n < 10 ? '0' : '') + n;
+  const dateKey = (d) => { d = d || new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
+  const lsGet = (k, def) => { try { const v = localStorage.getItem(k); return v == null ? def : JSON.parse(v); } catch (e) { return def; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+
+  /* ───────── seeded RNG (same daily questions for everyone) ───────── */
+  function hashStr(s) {
+    let h = 1779033703 ^ s.length;
+    for (let i = 0; i < s.length; i++) { h = Math.imul(h ^ s.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); }
+    h = Math.imul(h ^ (h >>> 16), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return (h ^= h >>> 16) >>> 0;
+  }
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const makeRng = (seed) => (seed == null ? Math.random : mulberry32(hashStr(String(seed))));
+  const ri = (rng, a, b) => a + Math.floor(rng() * (b - a + 1));
+  const pick = (rng, arr) => arr[Math.floor(rng() * arr.length)];
+
+  /* ───────── event ledger (first step of the unified event log) ───────── */
+  const COSEvents = (function () {
+    const KEY = 'cos_events', MAX = 800;
+    const all = () => { const a = lsGet(KEY, []); return Array.isArray(a) ? a : []; };
+    function push(type, source, data) {
+      try {
+        const a = all();
+        a.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), type: String(type), source: String(source || ''), ts: Date.now(), data: data || {} });
+        while (a.length > MAX) a.shift();
+        lsSet(KEY, a);
+      } catch (e) {}
+    }
+    const list = (type) => { const a = all(); return type ? a.filter((e) => e.type === type || e.type.indexOf(type + '.') === 0) : a; };
+    return { push, list, all };
+  })();
+  if (!window.COSEvents) window.COSEvents = COSEvents;
+
+  /* ───────── game history + personal bests (read by the Hive) ───────── */
+  const GameStore = (function () {
+    const HK = 'cos_game_history', BK = 'cos_game_best', MAX = 300;
+    const hist = () => { const h = lsGet(HK, []); return Array.isArray(h) ? h : []; };
+    const bests = () => { const b = lsGet(BK, {}); return b && typeof b === 'object' && !Array.isArray(b) ? b : {}; };
+    function record(rec) {
+      const h = hist();
+      const r = { game: rec.game, name: rec.name || rec.game, score: rec.score == null || !isFinite(rec.score) ? null : rec.score, acc: rec.acc == null ? null : Math.round(rec.acc), dur: Math.round(rec.dur || 0), ts: Date.now() };
+      if (rec.extra) r.extra = rec.extra;
+      h.push(r); while (h.length > MAX) h.shift();
+      lsSet(HK, h);
+      let improved = false, first = false;
+      if (r.score != null) {
+        const b = bests(), cur = b[r.game];
+        if (!cur) { first = true; b[r.game] = { score: r.score, ts: r.ts, lower: !!rec.lower }; lsSet(BK, b); }
+        else if (rec.lower ? r.score < cur.score : r.score > cur.score) { improved = true; b[r.game] = { score: r.score, ts: r.ts, lower: !!rec.lower }; lsSet(BK, b); }
+      }
+      try { COSEvents.push('game.session', 'games', { game: r.game, score: r.score, acc: r.acc, dur: r.dur }); } catch (e) {}
+      try { if (typeof cosBrainSync === 'function') cosBrainSync(); } catch (e) {}
+      return { improved, first, best: bests()[r.game] || null };
+    }
+    function best(id) { return bests()[id] || null; }
+    function plays(id) { return hist().filter((e) => e.game === id).length; }
+    function badge(id) {
+      const b = best(id), p = plays(id);
+      if (!p) return '';
+      return '<div style="font-size:10px;margin-top:3px;color:var(--text3)">' + (b ? 'Best ' + esc(b.score) + ' · ' : '') + p + ' play' + (p === 1 ? '' : 's') + '</div>';
+    }
+    function todayCount() { const k = dateKey(); return hist().filter((e) => dateKey(new Date(e.ts)) === k).length; }
+    return { record, best, plays, badge, todayCount, hist, bests };
+  })();
+
+  const Meta = {
+    rating: () => { const r = lsGet('cos_math_rating', 1000); return typeof r === 'number' && isFinite(r) ? r : 1000; },
+    setRating: (v) => lsSet('cos_math_rating', Math.max(100, Math.round(v))),
+    daily: () => { const d = lsGet('cos_math_daily', null); return d && typeof d === 'object' ? { last: d.last || null, streak: d.streak || 0, days: d.days || {} } : { last: null, streak: 0, days: {} }; },
+    bumpDaily(score) {
+      const d = this.daily(), today = dateKey();
+      const yd = new Date(); yd.setDate(yd.getDate() - 1);
+      if (d.last !== today) { d.streak = d.last === dateKey(yd) ? (d.streak || 0) + 1 : 1; d.last = today; }
+      d.days[today] = Math.max(d.days[today] || 0, score);
+      const keys = Object.keys(d.days).sort();
+      while (keys.length > 60) delete d.days[keys.shift()];
+      lsSet('cos_math_daily', d);
+      return d;
+    },
+  };
+
+  /* ───────── timers + listeners cleaned up when a game is left ───────── */
+  const GT = {
+    ids: [], tos: [], offs: [],
+    interval(fn, ms) { const id = setInterval(fn, ms); this.ids.push(id); return id; },
+    timeout(fn, ms) { const id = setTimeout(fn, ms); this.tos.push(id); return id; },
+    on(target, evt, fn) { target.addEventListener(evt, fn); this.offs.push(() => target.removeEventListener(evt, fn)); },
+    clear() {
+      while (this.ids.length) clearInterval(this.ids.pop());
+      while (this.tos.length) clearTimeout(this.tos.pop());
+      while (this.offs.length) { try { this.offs.pop()(); } catch (e) {} }
+    },
+  };
+
+  /* ───────── session tracking: records legacy games on exit too ───────── */
+  const num = (id) => { const e = $(id); if (!e) return NaN; const v = parseFloat(String(e.textContent).replace(/[^0-9.\-]/g, '')); return isNaN(v) ? NaN : v; };
+  const LEGACY = {
+    memory: { name: 'Memory Match', lower: true, get: () => (num('gs2') === 8 ? num('gs1') : null) },
+    reaction: { name: 'Reaction Pro', lower: true, get: () => { const a = num('gs2'); return isFinite(a) ? a : null; } },
+    stroop: { name: 'Stroop Challenge', get: () => num('gs1') },
+    nback: { name: 'Dual N-Back', get: () => num('gs1') },
+    pattern: { name: 'Pattern Recognition', get: () => num('gs1') },
+    spatial: { name: 'Spatial Rotation', get: () => num('gs1') },
+    simon: { name: 'Simon Says', get: () => num('gs1') },
+    breathing: { name: '4-7-8 Breathing', get: () => num('gs1') },
+    sudoku: { name: 'Sudoku Pro', get: () => null },
+    chess: { name: 'Chess', get: () => null },
+    monopoly: { name: 'Monopoly', get: () => null },
+  };
+  function legacyCapture(s) {
+    const cfg = LEGACY[s.id];
+    if (!cfg) return;
+    const dur = Math.min(Date.now() - s.t0, 20 * 60 * 1000) / 1000;
+    let score = null;
+    try { score = cfg.get(); } catch (e) {}
+    if (score != null && !isFinite(score)) score = null;
+    if (dur < 8) return;                                   // opened and left — not a real attempt
+    if ((score == null || score === 0) && dur < 45) return; // nothing to report and barely played
+    GameStore.record({ game: s.id, name: cfg.name, score: score, dur: dur, lower: !!cfg.lower });
+  }
+  const GameSession = {
+    cur: null,
+    start(id) { this.end(); GT.clear(); this.cur = { id: id, t0: Date.now(), handled: false, exit: null }; },
+    markHandled() { if (this.cur) this.cur.handled = true; },
+    onExit(fn) { if (this.cur) this.cur.exit = fn; },
+    end() {
+      const s = this.cur; if (!s) return; this.cur = null;
+      try { if (s.exit) s.exit(s); } catch (e) { console.warn('[MathArena] exit hook', e); }
+      try { GT.clear(); } catch (e) {}
+      try { if (!s.handled) legacyCapture(s); } catch (e) { console.warn('[MathArena] capture', e); }
+    },
+  };
+
+  /* ═════════════ PURE LOGIC (unit-tested in Node) ═════════════ */
+  const MUL = '\u00D7', DIV = '\u00F7', MIN = '\u2212';
+
+  /* Arithmetic question generator: level 1 (easy) … 9 (hard). Answers are always integers. */
+  function genArith(rng, lvl) {
+    lvl = clamp(lvl | 0, 1, 9);
+    let a, b, c, q;
+    switch (lvl) {
+      case 1: a = ri(rng, 2, 9); b = ri(rng, 2, 9); return { q: a + ' + ' + b, a: a + b };
+      case 2:
+        a = ri(rng, 10, 40); b = ri(rng, 2, 9);
+        return rng() < 0.5 ? { q: a + ' + ' + b, a: a + b } : { q: a + ' ' + MIN + ' ' + b, a: a - b };
+      case 3:
+        if (rng() < 0.34) { a = ri(rng, 2, 9); b = ri(rng, 2, 9); return { q: a + ' ' + MUL + ' ' + b, a: a * b }; }
+        a = ri(rng, 20, 99); b = ri(rng, 11, Math.min(a - 1, 89));
+        return rng() < 0.5 ? { q: a + ' + ' + b, a: a + b } : { q: a + ' ' + MIN + ' ' + b, a: a - b };
+      case 4:
+        if (rng() < 0.6) { a = ri(rng, 3, 12); b = ri(rng, 3, 12); return { q: a + ' ' + MUL + ' ' + b, a: a * b }; }
+        a = ri(rng, 100, 500); b = ri(rng, 20, 99);
+        return rng() < 0.5 ? { q: a + ' + ' + b, a: a + b } : { q: a + ' ' + MIN + ' ' + b, a: a - b };
+      case 5:
+        if (rng() < 0.5) { b = ri(rng, 2, 12); c = ri(rng, 2, 12); return { q: b * c + ' ' + DIV + ' ' + b, a: c }; }
+        a = ri(rng, 12, 49); b = ri(rng, 3, 9); return { q: a + ' ' + MUL + ' ' + b, a: a * b };
+      case 6:
+        if (rng() < 0.5) { a = ri(rng, 10, 60); b = ri(rng, a + 1, a + 50); return { q: a + ' ' + MIN + ' ' + b, a: a - b }; }
+        a = ri(rng, 200, 900); b = ri(rng, 100, 899);
+        return rng() < 0.5 ? { q: a + ' + ' + b, a: a + b } : { q: a + ' ' + MIN + ' ' + b, a: a - b };
+      case 7:
+        a = ri(rng, 2, 30); b = ri(rng, 2, 9); c = ri(rng, 2, 9);
+        if (rng() < 0.5) return { q: a + ' + ' + b + ' ' + MUL + ' ' + c, a: a + b * c };
+        a = ri(rng, 20, 90); return { q: a + ' ' + MIN + ' ' + b + ' ' + MUL + ' ' + c, a: a - b * c };
+      case 8:
+        if (rng() < 0.5) { a = ri(rng, 11, 29); b = ri(rng, 11, 19); return { q: a + ' ' + MUL + ' ' + b, a: a * b }; }
+        a = ri(rng, 6, 15); b = ri(rng, 6, 15); c = ri(rng, 5, 60);
+        return { q: a + ' ' + MUL + ' ' + b + ' ' + MIN + ' ' + c, a: a * b - c };
+      default: {
+        const r = rng();
+        if (r < 0.34) { b = ri(rng, 6, 19); c = ri(rng, 6, 19); return { q: b * c + ' ' + DIV + ' ' + b, a: c }; }
+        if (r < 0.67) { a = ri(rng, 13, 29); return { q: a + '\u00B2', a: a * a }; }
+        a = ri(rng, 3, 19); b = ri(rng, 3, 19); c = ri(rng, 2, 9);
+        return { q: '(' + a + ' + ' + b + ') ' + MUL + ' ' + c, a: (a + b) * c };
+      }
+    }
+  }
+
+  /* Judge a typed buffer against the answer while the player is still typing. */
+  function autoJudge(s, ans) {
+    if (s === '' || s === '-') return null;
+    const v = parseInt(s, 10);
+    if (v === ans) return 'ok';
+    const nd = s.replace('-', '').length, ad = String(Math.abs(ans)).length;
+    if (ans >= 0) return nd >= ad ? 'bad' : null;
+    return s.charAt(0) === '-' && nd >= ad ? 'bad' : null;
+  }
+
+  /* Number-entry buffer with a ± key (negative answers exist). */
+  function BufEdit() {
+    let s = '';
+    return {
+      get: () => s,
+      clear: () => { s = ''; },
+      key(k) {
+        if (k.length === 1 && k >= '0' && k <= '9') {
+          if (s.replace('-', '').length < 7) { if (s === '0' || s === '-0') s = s.slice(0, -1); s += k; }
+        } else if (k === '\u00B1') { s = s.charAt(0) === '-' ? s.slice(1) : '-' + s; }
+        else if (k === '\u232B') { s = s.slice(0, -1); }
+      },
+    };
+  }
+
+  /* ── Make 24: exact fraction arithmetic + solver ── */
+  const gcd = (a, b) => { a = Math.abs(a); b = Math.abs(b); while (b) { const t = a % b; a = b; b = t; } return a || 1; };
+  const Fr = (n, d) => { if (d === undefined) d = 1; if (d < 0) { n = -n; d = -d; } const g = gcd(n, d); return [n / g, d / g]; };
+  const fAdd = (x, y) => Fr(x[0] * y[1] + y[0] * x[1], x[1] * y[1]);
+  const fSub = (x, y) => Fr(x[0] * y[1] - y[0] * x[1], x[1] * y[1]);
+  const fMul = (x, y) => Fr(x[0] * y[0], x[1] * y[1]);
+  const fDiv = (x, y) => (y[0] === 0 ? null : Fr(x[0] * y[1], x[1] * y[0]));
+  const fIs = (x, n) => x[1] === 1 && x[0] === n;
+  const fStr = (x) => (x[1] === 1 ? String(x[0]) : x[0] + '/' + x[1]);
+  const OPFN = { '+': fAdd, [MIN]: fSub, [MUL]: fMul, [DIV]: fDiv };
+
+  /* Depth-first search over every way to combine the numbers. cb(expr, firstStep) returns true to stop. */
+  function dfs24(items, target, cb, trail) {
+    if (items.length === 1) {
+      if (fIs(items[0].v, target)) return !!cb(items[0].e, trail[0] || null);
+      return false;
+    }
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const A = items[i], B = items[j];
+        const rest = items.filter((_, k) => k !== i && k !== j);
+        const tries = [['+', A, B], [MUL, A, B], [MIN, A, B], [MIN, B, A], [DIV, A, B], [DIV, B, A]];
+        for (const [op, X, Y] of tries) {
+          const v = OPFN[op](X.v, Y.v);
+          if (!v) continue;
+          const e = '(' + X.e + ' ' + op + ' ' + Y.e + ')';
+          const step = { a: X.e, b: Y.e, op: op, v: v };
+          if (dfs24(rest.concat([{ v: v, e: e }]), target, cb, trail.concat([step]))) return true;
+        }
+      }
+    }
+    return false;
+  }
+  const stripOuter = (e) => (e.charAt(0) === '(' && e.charAt(e.length - 1) === ')' ? e.slice(1, -1) : e);
+  const toItems = (nums) => nums.map((n) => ({ v: Array.isArray(n) ? n : Fr(n, 1), e: Array.isArray(n) ? fStr(n) : String(n) }));
+  function solve24(nums, target) {
+    target = target == null ? 24 : target;
+    let found = null;
+    dfs24(toItems(nums), target, (e, step) => { found = { expr: stripOuter(e), step: step }; return true; }, []);
+    return found;
+  }
+  function count24(nums, cap) {
+    cap = cap || 40; const seen = new Set();
+    dfs24(toItems(nums), 24, (e) => { seen.add(e); return seen.size >= cap; }, []);
+    return seen.size;
+  }
+  /* level: 'easy' (many solutions) | 'medium' | 'hard' (few). Always solvable. */
+  function gen24(rng, level) {
+    for (let t = 0; t < 600; t++) {
+      const nums = [ri(rng, 1, 13), ri(rng, 1, 13), ri(rng, 1, 13), ri(rng, 1, 13)];
+      const n = count24(nums, 14);   // 14 is the 'easy' threshold, so counting further is wasted work
+      if (!n) continue;
+      if (level === 'easy' && n >= 14) return nums;
+      if (level === 'medium' && n >= 5 && n < 14) return nums;
+      if (level === 'hard' && n >= 1 && n < 5) return nums;
+    }
+    return [3, 3, 8, 8];   // classic fallback (solvable: 8 ÷ (3 − 8 ÷ 3))
+  }
+
+  /* ── Missing operator: normal order of operations, exact division only ── */
+  function evalPrec(nums, ops) {
+    const n = [nums[0]], o = [];
+    for (let i = 0; i < ops.length; i++) {
+      const op = ops[i], b = nums[i + 1];
+      if (op === MUL) n[n.length - 1] *= b;
+      else if (op === DIV) { const a = n[n.length - 1]; if (b === 0 || a % b !== 0) return null; n[n.length - 1] = a / b; }
+      else { o.push(op); n.push(b); }
+    }
+    let r = n[0];
+    for (let i = 0; i < o.length; i++) r = o[i] === '+' ? r + n[i + 1] : r - n[i + 1];
+    return r;
+  }
+  function genMissing(rng, lvl) {
+    const k = lvl <= 2 ? 2 : 3, hi = lvl <= 2 ? 9 : 12, OPS = ['+', MIN, MUL, DIV];
+    for (let t = 0; t < 200; t++) {
+      const nums = [], ops = [];
+      for (let i = 0; i <= k; i++) nums.push(ri(rng, 2, hi));
+      for (let i = 0; i < k; i++) ops.push(pick(rng, OPS));
+      if (new Set(ops).size < 2) continue;
+      const r = evalPrec(nums, ops);
+      if (r === null || Math.abs(r) > 150) continue;
+      return { nums: nums, ops: ops, target: r };
+    }
+    return { nums: [6, 3, 2], ops: [MUL, '+'], target: 20 };
+  }
+
+  /* ── Mental chain: start number + steps, every intermediate is an integer ── */
+  function genChain(rng, lvl) {
+    const steps = Math.min(8, 2 + lvl);
+    let v = ri(rng, 2, 9); const start = v, ops = [];
+    for (let i = 0; i < steps; i++) {
+      let done = false;
+      for (let t = 0; t < 40 && !done; t++) {
+        const r = rng(); let op, n, nv;
+        if (r < 0.35) { op = '+'; n = ri(rng, 2, 9 + lvl * 2); nv = v + n; }
+        else if (r < 0.6) { op = MIN; n = ri(rng, 2, 9 + lvl * 2); nv = v - n; }
+        else if (r < 0.85) { op = MUL; n = ri(rng, 2, Math.min(9, 3 + Math.floor(lvl / 2))); nv = v * n; }
+        else {
+          const ds = [2, 3, 4, 5, 6, 7, 8, 9].filter((d) => v !== 0 && v % d === 0);
+          if (!ds.length) continue;
+          op = DIV; n = pick(rng, ds); nv = v / n;
+        }
+        if (Math.abs(nv) > 500 || (nv < 0 && lvl < 5)) continue;
+        v = nv; ops.push({ op: op, n: n }); done = true;
+      }
+      if (!done) { ops.push({ op: '+', n: 1 }); v += 1; }
+    }
+    return { start: start, ops: ops, ans: v };
+  }
+
+  /* ── Number sequences: every kind returns 6 integer terms + the rule ── */
+  const PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47];
+  function genSeq(rng, lvl) {
+    lvl = clamp(lvl | 0, 1, 4);
+    const kinds = lvl <= 1 ? ['arith', 'geom'] : lvl === 2 ? ['arith', 'geom', 'sq', 'tri', 'alt'] : ['arith', 'geom', 'sq', 'tri', 'alt', 'fib', 'muladd', 'quad', 'cube', 'prime', 'fact'];
+    const kind = pick(rng, kinds), t = [];
+    let rule = '';
+    switch (kind) {
+      case 'arith': {
+        const a = ri(rng, -5, 30); let d = ri(rng, 2, 12); if (lvl >= 2 && rng() < 0.4) d = -d;
+        for (let i = 0; i < 6; i++) t.push(a + d * i);
+        rule = d > 0 ? 'Add ' + d + ' each time' : 'Subtract ' + (-d) + ' each time'; break;
+      }
+      case 'geom': {
+        const a = ri(rng, 1, 5), r = ri(rng, 2, 3);
+        for (let i = 0; i < 6; i++) t.push(a * Math.pow(r, i));
+        rule = 'Multiply by ' + r + ' each time'; break;
+      }
+      case 'sq': { const o = ri(rng, 0, 6); for (let i = 0; i < 6; i++) t.push(Math.pow(i + o + 1, 2)); rule = 'Perfect squares (n\u00B2)'; break; }
+      case 'tri': { const s = ri(rng, 1, 4); for (let i = 0; i < 6; i++) { const n = s + i; t.push(n * (n + 1) / 2); } rule = 'Triangular numbers \u2014 the gap grows by 1 each step'; break; }
+      case 'alt': {
+        const a = ri(rng, 2, 20), x = ri(rng, 3, 9), y = ri(rng, 1, x - 1); let v = a; t.push(v);
+        for (let i = 1; i < 6; i++) { v += i % 2 ? x : -y; t.push(v); }
+        rule = 'Alternately +' + x + ' and ' + MIN + y; break;
+      }
+      case 'fib': { const a = ri(rng, 1, 5), b = ri(rng, 1, 6); t.push(a, b); for (let i = 2; i < 6; i++) t.push(t[i - 1] + t[i - 2]); rule = 'Each term is the sum of the previous two'; break; }
+      case 'muladd': {
+        const m = ri(rng, 2, 3), c = pick(rng, [1, 2, -1]); let v = ri(rng, 1, 3); if (m === 2 && c === -1 && v === 1) v = 2; t.push(v);
+        for (let i = 1; i < 6; i++) { v = v * m + c; t.push(v); }
+        rule = 'Multiply by ' + m + ', then ' + (c > 0 ? 'add ' + c : 'subtract ' + (-c)); break;
+      }
+      case 'quad': {
+        const a = ri(rng, 1, 10), d0 = ri(rng, 1, 4), e = ri(rng, 1, 3); let v = a; t.push(v);
+        for (let i = 0; i < 5; i++) { v += d0 + e * i; t.push(v); }
+        rule = 'The gaps are ' + d0 + ', ' + (d0 + e) + ', ' + (d0 + 2 * e) + '\u2026 (they grow by ' + e + ')'; break;
+      }
+      case 'cube': { const o = ri(rng, 0, 2); for (let i = 0; i < 6; i++) t.push(Math.pow(i + o + 1, 3)); rule = 'Perfect cubes (n\u00B3)'; break; }
+      case 'prime': { const s = ri(rng, 0, PRIMES.length - 6); for (let i = 0; i < 6; i++) t.push(PRIMES[s + i]); rule = 'Consecutive prime numbers'; break; }
+      default: { let v = 1; for (let i = 1; i <= 6; i++) { v *= i; t.push(v); } rule = 'Factorials: \u00D72, \u00D73, \u00D74, \u00D75, \u00D76'; }
+    }
+    return { terms: t, ans: t[5], rule: rule, kind: kind };
+  }
+
+  /* ── Duel bot + rating ── */
+  const TIERS = [
+    { id: 'rookie', name: 'Rookie', emoji: '\uD83D\uDC23', rating: 800, acc: 0.82, base: 7000, jit: 0.35, lv: [2, 4], blurb: 'Slow and sloppy' },
+    { id: 'student', name: 'Student', emoji: '\uD83E\uDDD1\u200D\uD83C\uDF93', rating: 1100, acc: 0.90, base: 5200, jit: 0.30, lv: [3, 5], blurb: 'Solid and steady' },
+    { id: 'pro', name: 'Pro', emoji: '\uD83E\uDDE0', rating: 1400, acc: 0.94, base: 3800, jit: 0.28, lv: [4, 7], blurb: 'Fast and accurate' },
+    { id: 'champ', name: 'Champion', emoji: '\uD83D\uDC51', rating: 1700, acc: 0.97, base: 2600, jit: 0.25, lv: [5, 9], blurb: 'Mental-math machine' },
+  ];
+  const botThink = (tier, lvl, rng) => Math.round(tier.base * (0.6 + 0.1 * lvl) * (1 + (rng() * 2 - 1) * tier.jit));
+  function eloDelta(me, opp, won, K) {
+    K = K || 24;
+    const exp = 1 / (1 + Math.pow(10, (opp - me) / 400));
+    return Math.round(K * ((won ? 1 : 0) - exp));
+  }
+
+  /* ═════════════ UI SCAFFOLDING ═════════════ */
+  const CSS = `
+  .ma-wrap{max-width:420px;margin:0 auto;padding:2px 2px 14px}
+  .ma-chips{display:flex;gap:6px;justify-content:center;margin:0 0 10px;flex-wrap:wrap}
+  .ma-chip{padding:6px 12px;border-radius:999px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:12px;font-weight:700;cursor:pointer}
+  .ma-chip.on{border-color:var(--primary);background:rgba(124,58,237,.15)}
+  .ma-note{font-size:12px;color:var(--text3);text-align:center;margin:0 0 8px;line-height:1.5}
+  .ma-bar{height:8px;border-radius:6px;background:var(--bg3);overflow:hidden;margin:0 0 12px}
+  .ma-bar>div{height:100%;width:100%;background:linear-gradient(90deg,var(--primary),var(--accent));transition:width .1s linear}
+  .ma-q{font-family:Syne,sans-serif;font-weight:800;font-size:38px;text-align:center;color:var(--primary);min-height:56px;line-height:1.2;margin:4px 0 6px;word-break:break-word}
+  .ma-q.sm{font-size:26px}
+  .ma-in{font-family:Syne,sans-serif;font-weight:800;font-size:30px;text-align:center;min-height:46px;line-height:46px;border-radius:12px;border:2px solid var(--border);background:var(--bg3);margin:0 auto 6px;max-width:260px;color:var(--text);letter-spacing:2px}
+  .ma-in.ok{border-color:var(--success);background:rgba(16,185,129,.18)}
+  .ma-in.bad{border-color:var(--danger);background:rgba(239,68,68,.18)}
+  .ma-meta{display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--text3);min-height:18px;margin:0 4px 8px}
+  .ma-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:300px;margin:0 auto 10px}
+  .ma-key{min-height:52px;border-radius:12px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:22px;font-weight:800;cursor:pointer;touch-action:manipulation;user-select:none}
+  .ma-key:active{transform:scale(.96);background:rgba(124,58,237,.18)}
+  .ma-key:disabled{opacity:.4}
+  .ma-ok{grid-column:1/-1;min-height:46px;font-size:16px;background:var(--primary);color:#fff;border-color:var(--primary)}
+  .ma-result{text-align:center;padding:6px 4px}
+  .ma-r-emoji{font-size:48px}
+  .ma-r-title{font-family:Syne,sans-serif;font-weight:800;font-size:22px;margin:4px 0 8px}
+  .ma-badge{display:inline-block;background:var(--warning);color:#fff;border-radius:999px;padding:3px 12px;font-size:12px;font-weight:800;margin-bottom:10px}
+  .ma-r-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0 12px}
+  .ma-r-grid>div{background:var(--bg3);border-radius:12px;padding:10px}
+  .ma-r-grid b{display:block;font-size:20px;font-family:Syne,sans-serif}
+  .ma-r-grid span{font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:700}
+  .ma-r-btns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+  .ma-tiers{display:grid;gap:8px;margin:10px 0}
+  .ma-tier{display:flex;align-items:center;gap:12px;text-align:left;padding:12px;border-radius:14px;border:2px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer;width:100%}
+  .ma-tier .e{font-size:28px}.ma-tier b{display:block;font-size:15px}.ma-tier small{color:var(--text3);font-size:11px}
+  .ma-prog{height:10px;border-radius:6px;background:var(--bg3);overflow:hidden;flex:1}
+  .ma-prog>div{height:100%;width:0;transition:width .3s}
+  .ma-vs{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;margin:0 0 8px}
+  .ma-vs span{min-width:64px}
+  .ma-status{text-align:center;font-size:13px;font-weight:700;min-height:20px;margin:0 0 8px;color:var(--text2)}
+  .ma-tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:8px 0}
+  .ma-tile{min-height:76px;border-radius:16px;border:3px solid var(--border);background:var(--bg3);color:var(--text);font-family:Syne,sans-serif;font-weight:800;font-size:30px;cursor:pointer;touch-action:manipulation;word-break:break-all;padding:4px}
+  .ma-tile.sel{border-color:var(--primary);background:rgba(124,58,237,.2)}
+  .ma-tile.res{border-style:dashed}
+  .ma-ops{display:flex;gap:8px;justify-content:center;margin:6px 0 10px}
+  .ma-op{width:58px;height:50px;border-radius:12px;border:2px solid var(--border);background:var(--bg3);color:var(--text);font-size:24px;font-weight:800;cursor:pointer}
+  .ma-op.sel{border-color:var(--accent);background:rgba(6,182,212,.2)}
+  .ma-ctl{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:6px}
+  .ma-eq{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px;font-family:Syne,sans-serif;font-weight:800;font-size:24px;margin:12px 0}
+  .ma-slot{min-width:46px;height:46px;border-radius:12px;border:2px dashed var(--primary);background:var(--bg3);color:var(--primary);font-size:24px;font-weight:800;cursor:pointer}
+  .ma-slot.set{border-style:solid}
+  .ma-shake{animation:maShake .35s}
+  @keyframes maShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+  .ma-stats{background:linear-gradient(135deg,rgba(124,58,237,.12),rgba(245,158,11,.10));border:1px solid var(--border);border-radius:14px;padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-around;text-align:center;gap:6px}
+  .ma-stats b{display:block;font-size:18px;font-family:Syne,sans-serif}.ma-stats span{font-size:10px;color:var(--text3);font-weight:700;text-transform:uppercase}
+  `;
+  function injectCss() {
+    if (document.getElementById('ma-style')) return;
+    const st = document.createElement('style'); st.id = 'ma-style'; st.textContent = CSS;
+    (document.head || document.documentElement).appendChild(st);
+  }
+
+  const PAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '\u00B1', '0', '\u232B'];
+  const padHTML = () => '<div class="ma-pad" id="maPad">' + PAD_KEYS.map((k) => '<button type="button" class="ma-key" data-k="' + k + '">' + k + '</button>').join('') + '<button type="button" class="ma-key ma-ok" data-k="OK">OK</button></div>';
+  const setPadEnabled = (on) => { document.querySelectorAll('#maPad .ma-key').forEach((b) => { b.disabled = !on; }); };
+
+  /* Build the game shell. ctx.pad(key) and ctx.act(name,arg) are filled in by each game. */
+  function mount(c, title, emoji, l1, l2, html) {
+    c.innerHTML = gameHeader(title, emoji, l1, l2) + '<div class="ma-wrap" id="maWrap">' + html + '</div>';
+    const wrap = $('maWrap');
+    const ctx = { wrap: wrap, pad: null, act: null, padOn: true };
+    wrap.addEventListener('click', (e) => {
+      const t = e.target && e.target.closest ? e.target : null; if (!t) return;
+      const key = t.closest('.ma-key');
+      if (key) { if (!key.disabled && ctx.pad && ctx.padOn) ctx.pad(key.getAttribute('data-k')); return; }
+      const a = t.closest('[data-act]');
+      if (a && ctx.act) { const parts = a.getAttribute('data-act').split(':'); ctx.act(parts[0], parts.slice(1).join(':'), a); }
+    });
+    GT.on(document, 'keydown', (e) => {
+      if (!ctx.pad || !ctx.padOn || e.ctrlKey || e.metaKey || e.altKey) return;
+      const tg = e.target && e.target.tagName; if (tg === 'INPUT' || tg === 'TEXTAREA' || tg === 'SELECT') return;
+      const k = e.key;
+      if (k.length === 1 && k >= '0' && k <= '9') ctx.pad(k);
+      else if (k === 'Backspace') { ctx.pad('\u232B'); e.preventDefault(); }
+      else if (k === 'Enter') { ctx.pad('OK'); e.preventDefault(); }
+      else if (k === '-' || k === '+') ctx.pad('\u00B1');
+    });
+    return ctx;
+  }
+  const setText = (id, t) => { const e = $(id); if (e && e.textContent !== String(t)) e.textContent = t; };
+  function flashIn(cls) {
+    const e = $('maIn'); if (!e) return;
+    e.classList.remove('ok', 'bad'); void e.offsetWidth; e.classList.add(cls);
+    GT.timeout(() => { const x = $('maIn'); if (x) x.classList.remove('ok', 'bad'); }, 220);
+  }
+  function resultCard(o) {
+    return '<div class="ma-result"><div class="ma-r-emoji">' + o.emoji + '</div><div class="ma-r-title">' + esc(o.title) + '</div>' +
+      (o.badge ? '<div class="ma-badge">' + esc(o.badge) + '</div>' : '') +
+      '<div class="ma-r-grid">' + o.lines.map((l) => '<div><b>' + esc(l[1]) + '</b><span>' + esc(l[0]) + '</span></div>').join('') + '</div>' +
+      (o.note ? '<div class="ma-note">' + esc(o.note) + '</div>' : '') +
+      '<div class="ma-r-btns">' + o.btns.map((b) => '<button type="button" class="btn ' + (b.primary ? 'btn-primary' : 'btn-secondary') + '" data-act="' + b.act + '">' + esc(b.label) + '</button>').join('') + '</div></div>';
+  }
+  const relaunch = (id) => { try { launchGame(id); } catch (e) {} };
+  const goBack = () => { try { backToGames(); } catch (e) {} };
+
+  /* ═════════════ GAME 1 — SPEED MATH  (also powers the Daily Challenge) ═════════════ */
+  const SM_MODES = { easy: { start: 1, min: 1, max: 3, label: '\uD83D\uDFE2 Easy' }, adaptive: { start: 2, min: 1, max: 9, label: '\uD83D\uDFE1 Adaptive' }, pro: { start: 5, min: 4, max: 9, label: '\uD83D\uDD34 Pro' } };
+  function speedMath(c, opt) {
+    opt = opt || {};
+    const daily = opt.mode === 'daily';
+    let mode = daily ? 'daily' : (lsGet('cos_math_mode', 'adaptive')); if (!daily && !SM_MODES[mode]) mode = 'adaptive';
+    const cfg = daily ? { start: 2, min: 2, max: 9 } : SM_MODES[mode];
+    const id = daily ? 'daily' : 'speedmath', name = daily ? 'Daily Challenge' : 'Speed Math';
+    const DUR = 60000;
+    const chips = daily ? '<div class="ma-note">\uD83D\uDCC5 ' + dateKey() + ' \u2014 same questions for everyone today. One minute, no second chances on streak.</div>'
+      : '<div class="ma-chips" id="maModes">' + Object.keys(SM_MODES).map((m) => '<button type="button" class="ma-chip' + (m === mode ? ' on' : '') + '" data-act="mode:' + m + '">' + SM_MODES[m].label + '</button>').join('') + '</div>';
+    const ctx = mount(c, name, daily ? '\uD83D\uDCC5' : '\u26A1', 'Score', 'Time',
+      chips + '<div class="ma-bar"><div id="maBar"></div></div><div class="ma-q" id="maQ">Ready?</div><div class="ma-in" id="maIn">\u00A0</div>' +
+      '<div class="ma-meta"><span id="maCombo">\u00A0</span><span id="maPrev"></span><span id="maLvl">\u00A0</span></div>' + padHTML() +
+      '<button type="button" class="btn btn-primary btn-block" data-act="start" id="maStart">\u25B6 Start (60s)</button>');
+    GameSession.markHandled();
+    setPadEnabled(false); setText('gs2', 60);
+
+    let st = 'idle', score = 0, correct = 0, attempts = 0, streak = 0, bestStreak = 0, lvl = cfg.start, run = 0, maxLvl = cfg.start, idx = 0, endAt = 0, qStart = 0, cur = null;
+    const times = [], buf = BufEdit();
+    const rng = makeRng(daily ? 'cos-daily-' + dateKey() : null);
+    const showBuf = () => setText('maIn', buf.get() === '' ? '\u00A0' : buf.get());
+    function nextQ() {
+      cur = genArith(rng, daily ? clamp(2 + Math.floor(idx / 2), 2, 9) : lvl); idx++;
+      qStart = Date.now(); buf.clear(); showBuf(); setText('maQ', cur.q + ' = ?');
+      setText('maLvl', daily ? 'Q' + idx : 'Lv ' + lvl);
+    }
+    function answer(ok) {
+      attempts++;
+      if (ok) {
+        const mult = Math.min(4, 1 + Math.floor(streak / 5));
+        score += 10 * mult; correct++; streak++; run++; bestStreak = Math.max(bestStreak, streak);
+        times.push(Date.now() - qStart); flashIn('ok'); setText('maPrev', '');
+        if (!daily && run >= 3 && lvl < cfg.max) { lvl++; run = 0; maxLvl = Math.max(maxLvl, lvl); }
+      } else {
+        streak = 0; run = 0; flashIn('bad'); setText('maPrev', '\u274C ' + cur.q + ' = ' + cur.a);
+        if (!daily && lvl > cfg.min) lvl--;
+      }
+      setText('gs1', score);
+      const m = Math.min(4, 1 + Math.floor(streak / 5));
+      setText('maCombo', streak >= 5 ? '\uD83D\uDD25 \u00D7' + m + ' \u00B7 ' + streak : (streak ? streak + ' in a row' : '\u00A0'));
+      nextQ();
+    }
+    ctx.pad = (k) => {
+      if (st !== 'play') return;
+      if (k === 'OK') { const v = buf.get(); if (v === '' || v === '-') return; answer(parseInt(v, 10) === cur.a); return; }
+      buf.key(k); showBuf();
+      const j = autoJudge(buf.get(), cur.a);
+      if (j) answer(j === 'ok');
+    };
+    function start() {
+      if (st !== 'idle') return;
+      st = 'count'; const ch = $('maModes'); if (ch) ch.style.display = 'none'; $('maStart').style.display = 'none';
+      let n = 3; setText('maQ', n);
+      const iv = GT.interval(() => {
+        n--; if (n > 0) { setText('maQ', n); return; }
+        clearInterval(iv); st = 'play'; setPadEnabled(true); endAt = Date.now() + DUR; nextQ();
+        GT.interval(() => {
+          const left = endAt - Date.now();
+          const bar = $('maBar'); if (bar) bar.style.width = clamp(left / DUR * 100, 0, 100) + '%';
+          setText('gs2', Math.max(0, Math.ceil(left / 1000)));
+          if (left <= 0) finish();
+        }, 100);
+      }, 1000);
+    }
+    function finish() {
+      if (st === 'done') return; st = 'done'; GT.clear(); setPadEnabled(false);
+      const acc = attempts ? Math.round(100 * correct / attempts) : 0, avg = times.length ? Math.round(sum(times) / times.length) / 1000 : 0;
+      const rec = GameStore.record({ game: id, name: name, score: score, acc: acc, dur: 60, extra: { correct: correct, attempts: attempts, bestStreak: bestStreak, maxLvl: daily ? null : maxLvl, mode: mode } });
+      let badge = rec.improved ? '\uD83C\uDF89 New personal best!' : (rec.first ? '\u2B50 First score on the board' : '');
+      let note = '';
+      if (daily) {
+        const d = Meta.bumpDaily(score);
+        note = '\uD83D\uDD25 Daily streak: ' + d.streak + ' day' + (d.streak === 1 ? '' : 's') + ' \u00B7 Today\u2019s best: ' + d.days[dateKey()];
+        COSEvents.push('game.daily', 'games', { date: dateKey(), score: score, streak: d.streak });
+      } else if (rec.best && !rec.first) note = 'Your best: ' + rec.best.score;
+      ctx.wrap.innerHTML = resultCard({ emoji: score >= 150 ? '\uD83C\uDFC6' : score >= 80 ? '\uD83E\uDD47' : '\uD83D\uDC4D', title: name + ' \u2014 ' + score + ' pts', badge: badge,
+        lines: [['Correct', correct + '/' + attempts], ['Accuracy', acc + '%'], ['Avg time', avg ? avg.toFixed(1) + 's' : '\u2014'], ['Best streak', bestStreak]],
+        note: note, btns: (daily ? [{ act: 'copy', label: '\uD83D\uDCCB Copy result', primary: true }] : [{ act: 'again', label: '\uD83D\uDD04 Play again', primary: true }]).concat([{ act: 'back', label: '\u2190 Back' }]) });
+    }
+    ctx.act = (a, arg) => {
+      if (a === 'start') start();
+      else if (a === 'mode' && SM_MODES[arg] && st === 'idle') { lsSet('cos_math_mode', arg); relaunch(id); }
+      else if (a === 'again') relaunch(id);
+      else if (a === 'back') goBack();
+      else if (a === 'copy') {
+        const d = Meta.daily(), txt = 'COS Daily ' + dateKey() + '\n\u26A1 ' + score + ' pts \u00B7 ' + correct + '/' + attempts + ' correct \u00B7 \uD83D\uDD25 ' + d.streak + '-day streak';
+        try { navigator.clipboard.writeText(txt).then(() => toast('Copied \u2713'), () => toast(txt, 5000)); } catch (e) { toast(txt, 5000); }
+      }
+    };
+    GameSession.onExit(() => { /* an abandoned timed run is not recorded, so scores cannot be farmed */ });
+  }
+
+  /* ═════════════ GAME 2 — MATH DUEL (you vs a bot, first to 7) ═════════════ */
+  function mathDuel(c) {
+    const TARGET = 7, ROUND_MS = 15000;
+    const ctx = mount(c, 'Math Duel', '\u2694\uFE0F', 'You', 'Bot', '');
+    GameSession.markHandled();
+    setText('gs1', 0); setText('gs2', 0);
+    const rating = Meta.rating();
+    const buf = BufEdit();
+    let tier = null, you = 0, bot = 0, round = 0, state = 'menu', locked = false, botDone = false, cur = null, qStart = 0, rng = Math.random;
+    let tries = 0, oks = 0, startedAt = 0, finished = false;
+    const yourTimes = [];
+
+    function tierScreen() {
+      ctx.padOn = false;
+      ctx.wrap.innerHTML = '<div class="ma-note">\u2694\uFE0F First to ' + TARGET + ' points. Each round: both of you get the same question \u2014 first correct answer scores. A wrong answer locks you out of that round.</div>' +
+        '<div class="ma-stats"><div><b>' + rating + '</b><span>Your rating</span></div></div>' +
+        '<div class="ma-tiers">' + TIERS.map((t) => '<button type="button" class="ma-tier" data-act="tier:' + t.id + '"><span class="e">' + t.emoji + '</span><span><b>' + esc(t.name) + ' \u00B7 ' + t.rating + '</b><small>' + esc(t.blurb) + '</small></span></button>').join('') + '</div>' +
+        '<div class="ma-note">Opponents are offline bots (no real players yet). Leaving a match after 2+ rounds counts as a loss.</div>';
+      state = 'menu';
+    }
+    function matchScreen() {
+      ctx.wrap.innerHTML =
+        '<div class="ma-vs"><span>You</span><div class="ma-prog"><div id="dYou" style="background:var(--success)"></div></div></div>' +
+        '<div class="ma-vs"><span>' + tier.emoji + ' ' + esc(tier.name) + '</span><div class="ma-prog"><div id="dBot" style="background:var(--danger)"></div></div></div>' +
+        '<div class="ma-bar"><div id="maBar"></div></div><div class="ma-q" id="maQ">Get ready\u2026</div><div class="ma-in" id="maIn">\u00A0</div>' +
+        '<div class="ma-status" id="dStat">&nbsp;</div>' + padHTML();
+      ctx.padOn = true; setPadEnabled(false);
+    }
+    const paintScore = () => {
+      setText('gs1', you); setText('gs2', bot);
+      const a = $('dYou'), b = $('dBot'); if (a) a.style.width = (you / TARGET * 100) + '%'; if (b) b.style.width = (bot / TARGET * 100) + '%';
+    };
+    const stat = (t) => setText('dStat', t);
+    function startMatch(t) {
+      tier = t; you = 0; bot = 0; round = 0; tries = 0; oks = 0; yourTimes.length = 0; finished = false; startedAt = Date.now();
+      rng = makeRng(null); matchScreen(); paintScore();
+      state = 'between'; GT.timeout(newRound, 900);
+    }
+    function newRound() {
+      if (finished) return;
+      if (you >= TARGET || bot >= TARGET) return endMatch(false);
+      round++; locked = false; botDone = false; state = 'live'; buf.clear(); setText('maIn', '\u00A0'); setPadEnabled(true);
+      const lv = clamp(Math.round(tier.lv[0] + (tier.lv[1] - tier.lv[0]) * Math.min(1, (round - 1) / 10)), 1, 9);
+      cur = genArith(rng, lv); qStart = Date.now(); setText('maQ', cur.q + ' = ?'); stat('Round ' + round + ' \u2014 be first!');
+      const rid = round;
+      GT.timeout(() => botAnswer(rid), botThink(tier, lv, rng));
+      const endAt = Date.now() + ROUND_MS;
+      const iv = GT.interval(() => {
+        if (rid !== round || state !== 'live') { clearInterval(iv); return; }
+        const left = endAt - Date.now(); const bar = $('maBar'); if (bar) bar.style.width = clamp(left / ROUND_MS * 100, 0, 100) + '%';
+        if (left <= 0) { clearInterval(iv); resolve('none', rid); }
+      }, 100);
+    }
+    function botAnswer(rid) {
+      if (rid !== round || state !== 'live' || botDone) return;
+      botDone = true;
+      if (rng() < tier.acc) resolve('bot', rid);
+      else { stat('The bot slipped\u2026'); if (locked) resolve('none', rid); }
+    }
+    function resolve(who, rid) {
+      if (rid !== round || state !== 'live') return;
+      state = 'between'; setPadEnabled(false);
+      if (who === 'you') { you++; stat('\u2705 You \u2014 ' + ((Date.now() - qStart) / 1000).toFixed(1) + 's'); flashIn('ok'); }
+      else if (who === 'bot') { bot++; stat('\uD83E\uDD16 ' + tier.name + ' got it first (' + cur.q + ' = ' + cur.a + ')'); flashIn('bad'); }
+      else stat('No point \u2014 answer was ' + cur.a);
+      paintScore();
+      GT.timeout(newRound, 1300);
+    }
+    ctx.pad = (k) => {
+      if (state !== 'live' || locked) return;
+      if (k === 'OK') { const v = buf.get(); if (v === '' || v === '-') return; submit(parseInt(v, 10) === cur.a); return; }
+      buf.key(k); setText('maIn', buf.get() === '' ? '\u00A0' : buf.get());
+      const j = autoJudge(buf.get(), cur.a); if (j) submit(j === 'ok');
+    };
+    function submit(ok) {
+      tries++;
+      if (ok) { oks++; yourTimes.push(Date.now() - qStart); resolve('you', round); }
+      else { locked = true; flashIn('bad'); setPadEnabled(false); stat('\u274C Wrong \u2014 you\u2019re locked out this round'); if (botDone) resolve('none', round); }
+    }
+    function applyRating(won) {
+      const d = eloDelta(rating, tier.rating, won), nr = Math.max(100, rating + d);
+      Meta.setRating(nr); return { d: d, nr: nr };
+    }
+    function endMatch(forfeit) {
+      if (finished) return; finished = true; state = 'done'; GT.clear();
+      const won = !forfeit && you > bot, r = applyRating(won);
+      const acc = tries ? Math.round(100 * oks / tries) : 0, avg = yourTimes.length ? Math.round(sum(yourTimes)) / yourTimes.length / 1000 : 0;
+      GameStore.record({ game: 'mathduel', name: 'Math Duel', score: r.nr, acc: acc, dur: (Date.now() - startedAt) / 1000, extra: { vs: tier.id, you: you, bot: bot, win: won, delta: r.d, forfeit: !!forfeit } });
+      if (forfeit) return;
+      ctx.padOn = false;
+      ctx.wrap.innerHTML = resultCard({ emoji: won ? '\uD83C\uDFC6' : '\uD83D\uDCA5', title: won ? 'Victory!' : 'Defeated', badge: won ? '\u2694\uFE0F ' + you + ' \u2013 ' + bot + ' vs ' + tier.name : you + ' \u2013 ' + bot + ' vs ' + tier.name,
+        lines: [['Rating', r.nr + ' (' + (r.d >= 0 ? '+' : '') + r.d + ')'], ['Accuracy', acc + '%'], ['Avg answer', avg ? avg.toFixed(1) + 's' : '\u2014'], ['Rounds', round]],
+        note: 'Opponent rating ' + tier.rating + '. Rating is a local Elo-style score.', btns: [{ act: 'rematch', label: '\u2694\uFE0F Rematch', primary: true }, { act: 'menu', label: 'Change opponent' }, { act: 'back', label: '\u2190 Back' }] });
+    }
+    ctx.act = (a, arg) => {
+      if (a === 'tier') { const t = TIERS.find((x) => x.id === arg); if (t) startMatch(t); }
+      else if (a === 'rematch') { GT.clear(); relaunch('mathduel'); }
+      else if (a === 'menu') relaunch('mathduel');
+      else if (a === 'back') goBack();
+    };
+    GameSession.onExit(() => { if (!finished && tier && (you + bot) >= 2) endMatch(true); });
+    tierScreen();
+  }
+
+  /* ═════════════ GAME 3 — MAKE 24 ═════════════ */
+  function make24(c) {
+    const LV = { easy: '\uD83D\uDFE2 Easy', medium: '\uD83D\uDFE1 Medium', hard: '\uD83D\uDD34 Hard' };
+    let level = lsGet('cos_m24_lvl', 'medium'); if (!LV[level]) level = 'medium';
+    const ctx = mount(c, 'Make 24', '\uD83C\uDFAF', 'Points', 'Solved', '');
+    GameSession.markHandled();
+    const rng = makeRng(null), sessionStart = Date.now();
+    let nums = [], tiles = [], hist = [], selA = -1, selOp = '', solved = 0, skipped = 0, hints = 0, total = 0, t0 = 0, puzHints = 0, state = 'play', msg = '';
+    setText('gs1', 0); setText('gs2', 0);
+
+    function newPuzzle() {
+      nums = gen24(rng, level); tiles = toItems(nums); hist = []; selA = -1; selOp = ''; state = 'play'; puzHints = 0; t0 = Date.now();
+      msg = 'Use all four numbers once each to make 24. Tap a number, an operator, then another number.'; paint();
+    }
+    function paint() {
+      const chips = '<div class="ma-chips">' + Object.keys(LV).map((k) => '<button type="button" class="ma-chip' + (k === level ? ' on' : '') + '" data-act="lvl:' + k + '">' + LV[k] + '</button>').join('') + '</div>';
+      const tl = '<div class="ma-tiles">' + tiles.map((t, i) => '<button type="button" class="ma-tile' + (i === selA ? ' sel' : '') + (t.e.charAt(0) === '(' ? ' res' : '') + '" data-act="t:' + i + '"' + (state !== 'play' ? ' disabled' : '') + '>' + esc(fStr(t.v)) + '</button>').join('') + '</div>';
+      const ops = '<div class="ma-ops">' + ['+', MIN, MUL, DIV].map((o) => '<button type="button" class="ma-op' + (o === selOp ? ' sel' : '') + '" data-act="o:' + o + '"' + (state !== 'play' ? ' disabled' : '') + '>' + o + '</button>').join('') + '</div>';
+      const ctl = state === 'solved'
+        ? '<div class="ma-ctl"><button type="button" class="btn btn-primary" data-act="next">Next puzzle \u25B6</button></div>'
+        : '<div class="ma-ctl"><button type="button" class="btn btn-secondary btn-sm" data-act="undo">\u21A9 Undo</button><button type="button" class="btn btn-secondary btn-sm" data-act="reset">\u27F2 Reset</button><button type="button" class="btn btn-secondary btn-sm" data-act="hint">\uD83D\uDCA1 Hint</button><button type="button" class="btn btn-secondary btn-sm" data-act="skip">Skip \u2192</button></div>';
+      ctx.wrap.innerHTML = chips + tl + ops + '<div class="ma-status" id="mStat" style="min-height:40px">' + esc(msg) + '</div>' + ctl;
+    }
+    function combine(i, j, op) {
+      const A = tiles[i], B = tiles[j], v = OPFN[op](A.v, B.v);
+      if (!v) { msg = 'Can\u2019t divide by zero.'; selOp = ''; return paint(); }
+      hist.push(tiles.slice());
+      const nt = { v: v, e: '(' + A.e + ' ' + op + ' ' + B.e + ')' };
+      const rest = tiles.filter((_, k) => k !== i && k !== j); rest.splice(Math.min(i, j), 0, nt); tiles = rest; selA = -1; selOp = '';
+      if (tiles.length === 1) {
+        if (fIs(tiles[0].v, 24)) {
+          const secs = (Date.now() - t0) / 1000;
+          const pts = Math.max(5, Math.max(20, 100 - Math.max(0, Math.round(secs) - 10) * 2) - 25 * puzHints);
+          total += pts; solved++; state = 'solved'; setText('gs1', total); setText('gs2', solved);
+          msg = '\u2705 ' + stripOuter(tiles[0].e) + ' = 24  \u00B7  +' + pts + ' pts';
+        } else msg = '= ' + fStr(tiles[0].v) + ' \u2014 not 24. Undo and try another way.';
+      } else msg = tiles.length + ' numbers left.';
+      paint();
+    }
+    ctx.act = (a, arg) => {
+      if (a === 'lvl') { if (LV[arg]) { level = arg; lsSet('cos_m24_lvl', arg); newPuzzle(); } return; }
+      if (a === 'next') return newPuzzle();
+      if (state !== 'play') return;
+      if (a === 't') {
+        const i = parseInt(arg, 10); if (!(i >= 0 && i < tiles.length)) return;
+        if (selA < 0) selA = i; else if (selA === i) { selA = -1; selOp = ''; } else if (selOp) return combine(selA, i, selOp); else selA = i;
+        paint();
+      } else if (a === 'o') {
+        if (selA < 0) { msg = 'Pick a number first.'; return paint(); }
+        selOp = selOp === arg ? '' : arg; paint();
+      } else if (a === 'undo') {
+        if (hist.length) { tiles = hist.pop(); selA = -1; selOp = ''; msg = 'Undone.'; paint(); }
+      } else if (a === 'reset') { tiles = toItems(nums); hist = []; selA = -1; selOp = ''; msg = 'Reset.'; paint(); }
+      else if (a === 'hint') {
+        const f = solve24(tiles.map((t) => t.v), 24);
+        if (!f) msg = 'From here 24 is unreachable \u2014 press Undo or Reset.';
+        else if (f.step) { hints++; puzHints++; msg = '\uD83D\uDCA1 Try ' + f.step.a + ' ' + f.step.op + ' ' + f.step.b + ' (\u221225 pts).'; }
+        paint();
+      } else if (a === 'skip') { skipped++; newPuzzle(); }
+    };
+    GameSession.onExit(() => {
+      if (solved + skipped === 0) return;
+      GameStore.record({ game: 'make24', name: 'Make 24', score: total, acc: 100 * solved / (solved + skipped), dur: (Date.now() - sessionStart) / 1000, extra: { solved: solved, skipped: skipped, hints: hints, level: level } });
+    });
+    newPuzzle();
+  }
+
+  /* ═════════════ GAME 4 — MENTAL CHAIN (working memory + arithmetic) ═════════════ */
+  function mentalChain(c) {
+    const TOTAL = 8;
+    const ctx = mount(c, 'Mental Chain', '\uD83E\uDDEE', 'Points', 'Round',
+      '<div class="ma-note">A start number appears, then operations flash one by one. Keep the running total in your head, then type the final answer.</div>' +
+      '<div class="ma-q" id="maQ">Ready?</div><div class="ma-in" id="maIn">\u00A0</div><div class="ma-status" id="dStat" style="min-height:40px">&nbsp;</div>' + padHTML() +
+      '<button type="button" class="btn btn-primary btn-block" data-act="start" id="maStart">\u25B6 Start (' + TOTAL + ' rounds)</button>');
+    GameSession.markHandled(); setPadEnabled(false); ctx.padOn = true;
+    const rng = makeRng(null), buf = BufEdit(), startedAt = Date.now();
+    let lvl = 1, round = 0, points = 0, correct = 0, maxLvl = 1, state = 'idle', cur = null, qStart = 0;
+    setText('gs1', 0); setText('gs2', '0/' + TOTAL);
+    function nextRound() {
+      if (round >= TOTAL) return finish();
+      round++; cur = genChain(rng, lvl); state = 'show'; setPadEnabled(false); buf.clear(); setText('maIn', '\u00A0'); setText('dStat', 'Level ' + lvl + ' \u00B7 ' + cur.ops.length + ' steps'); setText('gs2', round + '/' + TOTAL);
+      const items = [String(cur.start)].concat(cur.ops.map((o) => o.op + o.n)), ms = Math.max(550, 1600 - lvl * 140);
+      let i = 0;
+      const rid = round;
+      (function showNext() {
+        if (rid !== round || state !== 'show') return;
+        if (i >= items.length) { state = 'ask'; setText('maQ', '= ?'); setPadEnabled(true); qStart = Date.now(); return; }
+        setText('maQ', items[i++]);
+        GT.timeout(() => { if (rid !== round) return; setText('maQ', '\u2022'); GT.timeout(showNext, 180); }, ms);
+      })();
+    }
+    function judge(ok) {
+      state = 'wait'; setPadEnabled(false); flashIn(ok ? 'ok' : 'bad');
+      if (ok) { points += 10 * lvl; correct++; maxLvl = Math.max(maxLvl, Math.min(8, lvl + 1)); lvl = Math.min(8, lvl + 1); setText('gs1', points); setText('dStat', '\u2705 Correct'); }
+      else { lvl = Math.max(1, lvl - 1); setText('dStat', '\u274C ' + cur.start + ' ' + cur.ops.map((o) => o.op + o.n).join(' ') + ' = ' + cur.ans); }
+      GT.timeout(nextRound, ok ? 900 : 2800);
+    }
+    ctx.pad = (k) => {
+      if (state !== 'ask') return;
+      if (k === 'OK') { const v = buf.get(); if (v === '' || v === '-') return; judge(parseInt(v, 10) === cur.ans); return; }
+      buf.key(k); setText('maIn', buf.get() === '' ? '\u00A0' : buf.get());
+      const j = autoJudge(buf.get(), cur.ans); if (j) judge(j === 'ok');
+    };
+    function finish() {
+      if (state === 'done') return; state = 'done'; GT.clear();
+      const acc = Math.round(100 * correct / TOTAL);
+      const rec = GameStore.record({ game: 'chain', name: 'Mental Chain', score: points, acc: acc, dur: (Date.now() - startedAt) / 1000, extra: { correct: correct, maxLvl: maxLvl } });
+      ctx.padOn = false;
+      ctx.wrap.innerHTML = resultCard({ emoji: correct >= 6 ? '\uD83C\uDFC6' : '\uD83E\uDDE0', title: 'Mental Chain \u2014 ' + points + ' pts', badge: rec.improved ? '\uD83C\uDF89 New personal best!' : (rec.first ? '\u2B50 First score on the board' : ''),
+        lines: [['Correct', correct + '/' + TOTAL], ['Accuracy', acc + '%'], ['Top level', maxLvl], ['Best', rec.best ? rec.best.score : points]], btns: [{ act: 'again', label: '\uD83D\uDD04 Play again', primary: true }, { act: 'back', label: '\u2190 Back' }] });
+    }
+    ctx.act = (a) => {
+      if (a === 'start' && state === 'idle') { $('maStart').style.display = 'none'; nextRound(); }
+      else if (a === 'again') relaunch('chain'); else if (a === 'back') goBack();
+    };
+  }
+
+  /* ═════════════ GAME 5 — MISSING OPERATOR ═════════════ */
+  function missingOp(c) {
+    const DUR = 60000, CYCLE = ['+', MIN, MUL, DIV];
+    const ctx = mount(c, 'Missing Operator', '\u2753', 'Solved', 'Time',
+      '<div class="ma-note">Fill each blank with + \u2212 \u00D7 \u00F7 so the equation is true. Normal order of operations applies (\u00D7 and \u00F7 first).</div>' +
+      '<div class="ma-bar"><div id="maBar"></div></div><div class="ma-eq" id="maEq">\u00A0</div><div class="ma-status" id="dStat" style="min-height:22px">&nbsp;</div>' +
+      '<div class="ma-ctl" id="maCtl" style="display:none"><button type="button" class="btn btn-primary" data-act="check">Check \u2713</button><button type="button" class="btn btn-secondary" data-act="skip">Skip \u2192</button></div>' +
+      '<button type="button" class="btn btn-primary btn-block" data-act="start" id="maStart">\u25B6 Start (60s)</button>');
+    GameSession.markHandled(); ctx.padOn = true;
+    const rng = makeRng(null), startedAt = Date.now();
+    let st = 'idle', solved = 0, wrong = 0, skips = 0, score = 0, lvl = 1, run = 0, puz = null, chosen = [], endAt = 0;
+    setText('gs1', 0); setText('gs2', 60);
+    function paintEq() {
+      let h = '';
+      for (let i = 0; i < puz.nums.length; i++) {
+        h += '<span>' + puz.nums[i] + '</span>';
+        if (i < puz.ops.length) h += '<button type="button" class="ma-slot' + (chosen[i] ? ' set' : '') + '" data-act="s:' + i + '">' + (chosen[i] || '?') + '</button>';
+      }
+      h += '<span>= ' + puz.target + '</span>';
+      $('maEq').innerHTML = h;
+    }
+    function newPuz() { puz = genMissing(rng, lvl); chosen = puz.ops.map(() => ''); paintEq(); setText('dStat', '\u00A0'); }
+    function check() {
+      if (st !== 'play' || chosen.some((x) => !x)) { setText('dStat', 'Fill every blank first.'); return; }
+      if (evalPrec(puz.nums, chosen) === puz.target) {
+        solved++; score += 10 + lvl * 2; run++; if (run >= 3 && lvl < 4) { lvl++; run = 0; }
+        setText('gs1', score); setText('dStat', '\u2705 Correct!'); GT.timeout(() => { if (st === 'play') newPuz(); }, 250);
+      } else {
+        wrong++; run = 0; setText('dStat', '\u274C Not quite \u2014 adjust and check again.');
+        const eq = $('maEq'); if (eq) { eq.classList.remove('ma-shake'); void eq.offsetWidth; eq.classList.add('ma-shake'); }
+      }
+    }
+    ctx.pad = (k) => { if (k === 'OK') check(); };
+    function finish() {
+      if (st === 'done') return; st = 'done'; GT.clear();
+      const att = solved + wrong, acc = att ? Math.round(100 * solved / att) : 0;
+      const rec = GameStore.record({ game: 'missingop', name: 'Missing Operator', score: score, acc: acc, dur: 60, extra: { solved: solved, wrong: wrong, skips: skips, maxLvl: lvl } });
+      ctx.padOn = false;
+      ctx.wrap.innerHTML = resultCard({ emoji: solved >= 8 ? '\uD83C\uDFC6' : '\uD83D\uDC4D', title: 'Missing Operator \u2014 ' + score + ' pts', badge: rec.improved ? '\uD83C\uDF89 New personal best!' : (rec.first ? '\u2B50 First score on the board' : ''),
+        lines: [['Solved', solved], ['Accuracy', acc + '%'], ['Wrong checks', wrong], ['Skipped', skips]], btns: [{ act: 'again', label: '\uD83D\uDD04 Play again', primary: true }, { act: 'back', label: '\u2190 Back' }] });
+    }
+    ctx.act = (a, arg) => {
+      if (a === 'start' && st === 'idle') {
+        st = 'play'; $('maStart').style.display = 'none'; $('maCtl').style.display = ''; endAt = Date.now() + DUR; newPuz();
+        GT.interval(() => { const left = endAt - Date.now(); const bar = $('maBar'); if (bar) bar.style.width = clamp(left / DUR * 100, 0, 100) + '%'; setText('gs2', Math.max(0, Math.ceil(left / 1000))); if (left <= 0) finish(); }, 100);
+      } else if (a === 's' && st === 'play') {
+        const i = parseInt(arg, 10); if (!(i >= 0 && i < chosen.length)) return;
+        const at = CYCLE.indexOf(chosen[i]); chosen[i] = CYCLE[(at + 1) % CYCLE.length]; paintEq();
+      } else if (a === 'check') check();
+      else if (a === 'skip' && st === 'play') { skips++; run = 0; newPuz(); }
+      else if (a === 'again') relaunch('missingop'); else if (a === 'back') goBack();
+    };
+  }
+
+  /* ═════════════ GAME 6 — SEQUENCE PRO (new sequences every time) ═════════════ */
+  function seqPro(c) {
+    const TOTAL = 10;
+    const ctx = mount(c, 'Sequence Pro', '\uD83D\uDD22', 'Points', 'Q',
+      '<div class="ma-note">Find the rule, then type the next number.</div><div class="ma-q sm" id="maQ">&nbsp;</div><div class="ma-in" id="maIn">\u00A0</div>' +
+      '<div class="ma-status" id="dStat" style="min-height:40px">&nbsp;</div>' + padHTML() + '<div class="ma-ctl"><button type="button" class="btn btn-primary" data-act="next" id="maNext" style="display:none">Next \u25B6</button></div>');
+    GameSession.markHandled(); ctx.padOn = true;
+    const rng = makeRng(null), buf = BufEdit(), startedAt = Date.now();
+    let lvl = 1, q = 0, points = 0, correct = 0, run = 0, maxLvl = 1, st = 'ask', cur = null, qStart = 0;
+    const times = [];
+    setText('gs1', 0);
+    function nextQ() {
+      if (q >= TOTAL) return finish();
+      q++; cur = genSeq(rng, lvl); st = 'ask'; buf.clear(); setText('maIn', '\u00A0'); setText('dStat', 'Level ' + lvl); setText('gs2', q + '/' + TOTAL);
+      setText('maQ', cur.terms.slice(0, 5).join(' , ') + ' , ?'); $('maNext').style.display = 'none'; setPadEnabled(true); ctx.padOn = true; qStart = Date.now();
+    }
+    function judge(ok) {
+      st = 'review'; setPadEnabled(false); flashIn(ok ? 'ok' : 'bad');
+      const secs = (Date.now() - qStart) / 1000;
+      if (ok) {
+        correct++; times.push(secs); run++; const pts = 10 + 3 * lvl + Math.max(0, 10 - Math.round(secs)); points += pts; setText('gs1', points);
+        if (run >= 2 && lvl < 4) { lvl++; run = 0; maxLvl = Math.max(maxLvl, lvl); }
+        setText('dStat', '\u2705 +' + pts + ' \u00B7 Rule: ' + cur.rule);
+      } else { run = 0; if (lvl > 1) lvl--; setText('dStat', '\u274C Answer ' + cur.ans + ' \u00B7 Rule: ' + cur.rule); }
+      $('maNext').style.display = ''; $('maNext').textContent = q >= TOTAL ? 'Finish \u25B6' : 'Next \u25B6';
+    }
+    ctx.pad = (k) => {
+      if (st === 'review') { if (k === 'OK') nextQ(); return; }
+      if (st !== 'ask') return;
+      if (k === 'OK') { const v = buf.get(); if (v === '' || v === '-') return; judge(parseInt(v, 10) === cur.ans); return; }
+      buf.key(k); setText('maIn', buf.get() === '' ? '\u00A0' : buf.get());
+      const j = autoJudge(buf.get(), cur.ans); if (j) judge(j === 'ok');
+    };
+    function finish() {
+      if (st === 'done') return; st = 'done'; GT.clear();
+      const acc = Math.round(100 * correct / TOTAL), avg = times.length ? sum(times) / times.length : 0;
+      const rec = GameStore.record({ game: 'seqpro', name: 'Sequence Pro', score: points, acc: acc, dur: (Date.now() - startedAt) / 1000, extra: { correct: correct, maxLvl: maxLvl } });
+      ctx.padOn = false;
+      ctx.wrap.innerHTML = resultCard({ emoji: correct >= 8 ? '\uD83C\uDFC6' : '\uD83E\uDDE0', title: 'Sequence Pro \u2014 ' + points + ' pts', badge: rec.improved ? '\uD83C\uDF89 New personal best!' : (rec.first ? '\u2B50 First score on the board' : ''),
+        lines: [['Correct', correct + '/' + TOTAL], ['Accuracy', acc + '%'], ['Avg time', avg ? avg.toFixed(1) + 's' : '\u2014'], ['Top level', maxLvl]], btns: [{ act: 'again', label: '\uD83D\uDD04 Play again', primary: true }, { act: 'back', label: '\u2190 Back' }] });
+    }
+    ctx.act = (a) => { if (a === 'next' && st === 'review') nextQ(); else if (a === 'again') relaunch('seqpro'); else if (a === 'back') goBack(); };
+    nextQ();
+  }
+
+  /* ═════════════ MENU + REGISTRATION ═════════════ */
+  const NEW_GAMES = [
+    { id: 'daily', name: 'Daily Challenge', emoji: '\uD83D\uDCC5', desc: 'The same 60-second math run for everyone today \u2014 build a streak', tag: 'Mental Math Arena', category: 'math', difficulty: 'Medium',
+      howTo: 'One 60-second run of mental arithmetic. The questions are generated from today\u2019s date, so everyone who plays today gets the same ones and you can compare scores with friends. Questions get harder as you go. Play on consecutive days to build your streak. Use the on-screen keypad: the answer is checked automatically when you type it.' },
+    { id: 'mathduel', name: 'Math Duel', emoji: '\u2694\uFE0F', desc: '1v1 race against a bot \u2014 first to 7 points, rating goes up and down', tag: 'Mental Math Arena', category: 'math', difficulty: 'Hard',
+      howTo: 'You and a bot get the same question each round. The first correct answer scores a point; a wrong answer locks you out of that round. First to 7 wins. Pick an opponent from Rookie to Champion \u2014 your local Elo-style rating changes after every match. The opponents are offline bots (real-time matches against other people would need a server and are not built yet). Leaving a match after two or more rounds counts as a loss.' },
+    { id: 'speedmath', name: 'Speed Math', emoji: '\u26A1', desc: 'Adaptive 60-second arithmetic with combo multipliers', tag: 'Mental Math Arena', category: 'math', difficulty: 'Medium',
+      howTo: 'Answer as many arithmetic questions as you can in 60 seconds. Difficulty adapts: three correct in a row moves you up a level, a mistake moves you down. Streaks of 5 or more raise your points multiplier (up to \u00D74). Choose Easy, Adaptive or Pro before you start. Your personal best is saved on this device.' },
+    { id: 'make24', name: 'Make 24', emoji: '\uD83C\uDFAF', desc: 'Combine four numbers with + \u2212 \u00D7 \u00F7 to reach exactly 24', tag: 'Mental Math Arena', category: 'math', difficulty: 'Hard',
+      howTo: 'You get four numbers. Use each exactly once with + \u2212 \u00D7 \u00F7 (and any order of operations) to make 24. Tap a number, tap an operator, tap a second number \u2014 they merge into one. Fractions are allowed in the middle (8/3 is fine). Every puzzle is guaranteed solvable. A hint costs 25 points; faster solves score more.' },
+    { id: 'chain', name: 'Mental Chain', emoji: '\uD83E\uDDEE', desc: 'Hold a running total in your head as operations flash by', tag: 'Mental Math Arena', category: 'math', difficulty: 'Hard',
+      howTo: 'A start number appears, then operations such as +7, \u00D73 or \u22124 flash one at a time and disappear. Keep the running total in your head and type the final result. Eight rounds; the chains get longer and faster as you succeed and shorter after a miss. It practises holding information while calculating.' },
+    { id: 'missingop', name: 'Missing Operator', emoji: '\u2753', desc: 'Fill in the missing + \u2212 \u00D7 \u00F7 so the equation is true', tag: 'Mental Math Arena', category: 'math', difficulty: 'Medium',
+      howTo: 'Each puzzle shows numbers and a target with blank operators, e.g. 6 ? 3 ? 2 = 20. Tap a blank to cycle through + \u2212 \u00D7 \u00F7, then press Check. Normal order of operations applies, so \u00D7 and \u00F7 happen before + and \u2212. Any combination that makes the target counts. 60 seconds.' },
+    { id: 'seqpro', name: 'Sequence Pro', emoji: '\uD83D\uDD22', desc: 'Fresh number sequences every time \u2014 find the rule', tag: 'Mental Math Arena', category: 'math', difficulty: 'Medium',
+      howTo: 'Ten sequences, generated fresh each time (arithmetic, multiplying, squares, triangular numbers, Fibonacci-style, primes and more). Work out the rule and type the next number. After each answer the rule is shown so you learn the pattern. Faster correct answers earn a small bonus, and the difficulty adapts.' },
+    { id: 'breathing', name: '4-7-8 Breathing', emoji: '\uD83E\uDEC1', desc: 'Guided breathing cycles \u2014 a calm reset between sessions', tag: 'Consciousness & Awareness', category: 'conscious', difficulty: 'Easy',
+      howTo: 'Follow the circle: breathe in for 4 seconds, hold for 7, breathe out slowly for 8. Four cycles take about 80 seconds. Slow breathing is a common relaxation exercise; if you feel dizzy, stop and breathe normally. This is a relaxation tool, not medical advice.' },
+  ];
+  function registerMenu() {
+    if (typeof GAMES_LIST === 'undefined' || !Array.isArray(GAMES_LIST)) return;
+    NEW_GAMES.forEach((g) => { if (!GAMES_LIST.some((x) => x.id === g.id)) GAMES_LIST.push(g); });
+  }
+  function menuHeader() {
+    const d = Meta.daily(), today = dateKey(), yd = new Date(); yd.setDate(yd.getDate() - 1);
+    const alive = d.last === today || d.last === dateKey(yd), streak = alive ? d.streak : 0;
+    const playedToday = d.last === today;
+    return '<div class="ma-stats" style="grid-column:1/-1"><div><b>' + Meta.rating() + '</b><span>Math rating</span></div><div><b>' + streak + (playedToday ? ' \u2705' : '') + '</b><span>Daily streak</span></div><div><b>' + GameStore.todayCount() + '</b><span>Plays today</span></div></div>';
+  }
+
+  window.EXTRA_GAMES = {
+    speedmath: (c) => speedMath(c, {}), math: (c) => speedMath(c, {}), daily: (c) => speedMath(c, { mode: 'daily' }),
+    mathduel: mathDuel, make24: make24, chain: mentalChain, missingop: missingOp, seqpro: seqPro,
+  };
+  window.GameSession = GameSession;
+  window.MathArena = {
+    version: '10.5', menuHeader: menuHeader, badge: GameStore.badge, store: GameStore, events: COSEvents, meta: Meta,
+    _t: { genArith, autoJudge, BufEdit, solve24, count24, gen24, evalPrec, genMissing, genChain, genSeq, eloDelta, botThink, TIERS, makeRng, Meta, GameStore, COSEvents, GameSession, GT, dateKey, MIN, MUL, DIV, fStr, Fr },
+  };
+  injectCss(); registerMenu();
+  try { const g = $('gamesGrid'); if (g && g.children.length && typeof buildGamesGrid === 'function') buildGamesGrid(); } catch (e) {}
+})();
+
+</script>
 </body>
 </html>
